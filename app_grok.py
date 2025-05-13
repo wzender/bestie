@@ -21,13 +21,16 @@ run_data = pd.DataFrame(
     }
 )
 
+# Define all possible subtypes
+all_subtypes = ["Sub1", "Sub2", "Sub3", "Sub4"]
+
 detailed_data = pd.DataFrame(
     {
         "run_id": [run_data["run_id"][i % len(run_data)] for i in range(500)],
         "text": [f"Sample text {i}" for i in range(500)],
         "true_type": np.random.choice(["TypeA", "TypeB", "TypeC"], 500),
-        "true_sub_type": np.random.choice(["Sub1", "Sub2", "Sub3", "Sub4"], 500),
-        "pred_sub_type": np.random.choice(["Sub1", "Sub2", "Sub3", "Sub4"], 500),
+        "true_sub_type": np.random.choice(all_subtypes, 500),
+        "pred_sub_type": np.random.choice(all_subtypes, 500),
     }
 )
 detailed_data["correct"] = (
@@ -111,29 +114,47 @@ def render_tab_content(tab, selected_rows):
         type_fig.update_layout(clickmode="event+select")
 
         # Subtype Confusion Matrix
+        # Ensure all subtypes are included in the crosstab
         cm = pd.crosstab(
-            run_data_filtered["true_sub_type"], run_data_filtered["pred_sub_type"]
+            run_data_filtered["true_sub_type"],
+            run_data_filtered["pred_sub_type"],
+            rownames=["True Subtype"],
+            colnames=["Predicted Subtype"],
         )
-        labels = cm.index.tolist()
+        # Reindex to include all possible subtypes, filling missing with 0
+        cm = cm.reindex(index=all_subtypes, columns=all_subtypes, fill_value=0)
+        labels = all_subtypes
         z = cm.values
         # Add percentage annotations
+        total = np.sum(z)
         z_text = [
-            [f"{count}<br>({count/np.sum(z)*100:.1f}%)" for count in row] for row in z
+            [
+                (
+                    f"{count}<br>({count/total*100:.1f}%)"
+                    if total > 0
+                    else f"{count}<br>(0.0%)"
+                )
+                for count in row
+            ]
+            for row in z
         ]
-        cm_fig = ff.create_annotated_heatmap(
-            z,
-            x=labels,
-            y=labels,
-            annotation_text=z_text,
-            colorscale="Blues",
-            showscale=True,
-        )
-        cm_fig.update_layout(
-            title="Subtype Confusion Matrix",
-            xaxis_title="Predicted Subtype",
-            yaxis_title="True Subtype",
-            clickmode="event+select",
-        )
+        try:
+            cm_fig = ff.create_annotated_heatmap(
+                z,
+                x=labels,
+                y=labels,
+                annotation_text=z_text,
+                colorscale="Blues",
+                showscale=True,
+            )
+            cm_fig.update_layout(
+                title="Subtype Confusion Matrix",
+                xaxis_title="Predicted Subtype",
+                yaxis_title="True Subtype",
+                clickmode="event+select",
+            )
+        except Exception as e:
+            return html.Div(f"Error creating confusion matrix: {str(e)}")
 
         # Datapoint Table (initially all data)
         datapoint_columns = [
