@@ -1,168 +1,299 @@
 import dash
+from dash import dcc, html, dash_table
+from dash.dependencies import Input, Output
 import dash_bootstrap_components as dbc
-from dash import html, dcc, Input, Output, State, ctx, dash_table
-import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
+import pandas as pd
+import numpy as np
+from uuid import uuid4
+from dash import callback_context
 
-# Sample run data - replace with dynamic loading in production
-run_data = {
-    "run_01": pd.DataFrame(
-        {
-            "text": [f"doc{i+1}" for i in range(9)],
-            "true_type": ["A", "A", "B", "B", "B", "C", "A", "B", "C"],
-            "true_sub_type": ["A1", "A1", "B1", "B2", "B2", "C1", "A2", "B3", "C1"],
-            "pred_sub_type": ["A1", "A2", "B1", "B2", "B3", "C1", "A1", "B2", "C1"],
-        }
-    )
-}
-
-leaderboard = pd.DataFrame(
+# Sample data (replace with your actual data loading logic)
+np.random.seed(42)
+n_samples = 100
+run_data = pd.DataFrame(
     {
-        "Run ID": ["run_01"],
-        "Sweep ID": ["sweep_001"],
-        "Learning Rate": [0.001],
-        "Batch Size": [32],
-        "Accuracy": [0.77],
-        "F1-score": [0.75],
+        "run_id": [str(uuid4())[:8] for _ in range(n_samples)],
+        "sweep_id": [f"sweep_{i%3}" for i in range(n_samples)],
+        "model_params": [f"lr:0.{i%5}, layers:{(i%3)+1}" for i in range(n_samples)],
+        "accuracy": np.random.uniform(0.7, 0.95, n_samples),
+        "f1_score": np.random.uniform(0.65, 0.9, n_samples),
     }
 )
 
+# Define all possible subtypes and types
+all_subtypes = ["Sub1", "Sub2", "Sub3", "Sub4"]
+all_types = [f"Type{i}" for i in range(1, 21)]  # 20 different types
+
+detailed_data = pd.DataFrame(
+    {
+        "run_id": [run_data["run_id"][i % len(run_data)] for i in range(500)],
+        "text": [f"Sample text {i}" for i in range(500)],
+        "true_type": np.random.choice(all_types, 500),
+        "true_sub_type": np.random.choice(all_subtypes, 500),
+        "pred_sub_type": np.random.choice(all_subtypes, 500),
+    }
+)
+detailed_data["correct"] = (
+    detailed_data["true_sub_type"] == detailed_data["pred_sub_type"]
+)
+
+# Initialize Dash app with Bootstrap Lux theme
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
-app.title = "Magellan Leaderboard"
 
-# Helper to calculate confusion matrix
-
-
-def generate_confusion_matrix(df):
-    subtypes = sorted(list(set(df["true_sub_type"]).union(set(df["pred_sub_type"]))))
-    conf_mat = pd.crosstab(
-        df["true_sub_type"],
-        df["pred_sub_type"],
-        rownames=["Actual"],
-        colnames=["Predicted"],
-        dropna=False,
-    )
-    conf_mat = conf_mat.reindex(index=subtypes, columns=subtypes, fill_value=0)
-    conf_values = conf_mat.values
-    total = conf_values.sum(axis=1, keepdims=True)
-    percent = (conf_values / total.clip(min=1) * 100).round(1).astype(str) + "%"
-    annotations = [
-        [f"{v}<br>{p}" for v, p in zip(row_v, row_p)]
-        for row_v, row_p in zip(conf_values, percent)
-    ]
-    fig = ff.create_annotated_heatmap(
-        conf_values,
-        x=subtypes,
-        y=subtypes,
-        annotation_text=annotations,
-        colorscale="Blues",
-    )
-    fig.update_layout(title="Subtype Confusion Matrix")
-    return fig
-
-
-# App Layout
+# Layout
 app.layout = dbc.Container(
     [
-        html.H2("🧠 Magellan — Lightweight Leaderboard for Text Classification"),
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        html.H4("Leaderboard"),
-                        dash_table.DataTable(
-                            id="leaderboard-table",
-                            columns=[{"name": i, "id": i} for i in leaderboard.columns],
-                            data=leaderboard.to_dict("records"),
-                            row_selectable="single",
-                            selected_rows=[0],
-                            style_table={"overflowX": "auto"},
-                            style_cell={"textAlign": "left"},
-                        ),
-                    ]
-                )
-            ]
+        html.H1("Magellan - Text Classification Leaderboard", className="my-4"),
+        # Leaderboard Table
+        html.H3("Leaderboard", className="mt-4"),
+        dash_table.DataTable(
+            id="leaderboard-table",
+            columns=[
+                {"name": "Run ID", "id": "run_id"},
+                {"name": "Sweep ID", "id": "sweep_id"},
+                {"name": "Model Parameters", "id": "model_params"},
+                {
+                    "name": "Accuracy",
+                    "id": "accuracy",
+                    "type": "numeric",
+                    "format": {"specifier": ".3f"},
+                },
+                {
+                    "name": "F1 Score",
+                    "id": "f1_score",
+                    "type": "numeric",
+                    "format": {"specifier": ".3f"},
+                },
+            ],
+            data=run_data.to_dict("records"),
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "5px"},
+            style_header={
+                "backgroundColor": "rgb(230, 230, 230)",
+                "fontWeight": "bold",
+            },
+            row_selectable="single",
+            selected_rows=[0],
+            page_size=10,
         ),
-        html.Hr(),
+        # Run Analysis Tabs
+        html.H3("Run Analysis", className="mt-4"),
         dcc.Tabs(
-            id="tabs",
-            value="error",
+            id="analysis-tabs",
+            value="error-analysis",
             children=[
-                dcc.Tab(label="Error Analysis", value="error"),
-                dcc.Tab(label="Full Run Table", value="full"),
+                dcc.Tab(label="Error Analysis", value="error-analysis"),
+                dcc.Tab(label="Full Run Table", value="full-run"),
             ],
         ),
-        html.Div(id="run-content"),
+        html.Div(id="tab-content", className="mt-3"),
     ],
     fluid=True,
 )
 
 
+# Callback to render tab content
 @app.callback(
-    Output("run-content", "children"),
-    Input("tabs", "value"),
-    Input("leaderboard-table", "selected_rows"),
+    Output("tab-content", "children"),
+    [Input("analysis-tabs", "value"), Input("leaderboard-table", "selected_rows")],
 )
-def update_tab_content(tab, selected_rows):
-    run_id = leaderboard.iloc[selected_rows[0]]["Run ID"]
-    df = run_data[run_id].copy()
-    df["correct"] = df["true_sub_type"] == df["pred_sub_type"]
+def render_tab_content(tab, selected_rows):
+    if not selected_rows:
+        return html.Div("Select a run from the leaderboard")
 
-    if tab == "error":
-        type_fig = px.histogram(
-            df, x="true_type", title="Type Histogram", color="true_type"
+    selected_run_id = run_data.iloc[selected_rows[0]]["run_id"]
+    run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
+
+    if tab == "error-analysis":
+        # Type Histogram
+        type_counts = run_data_filtered["true_type"].value_counts().reset_index()
+        type_counts.columns = ["true_type", "count"]
+        type_fig = px.bar(
+            type_counts, x="true_type", y="count", title="True Type Distribution"
         )
-        cm_fig = generate_confusion_matrix(df)
-        return dbc.Container(
-            [
-                dcc.Graph(figure=type_fig),
-                dcc.Graph(id="cm-graph", figure=cm_fig),
-                html.H5("Filtered Data Points"),
-                dash_table.DataTable(
-                    id="confusion-click-data",
-                    columns=[{"name": i, "id": i} for i in df.columns],
-                    data=[],
-                    page_size=5,
-                ),
-            ]
+        type_fig.update_layout(
+            clickmode="event+select",
+            dragmode=False,
+            xaxis={"fixedrange": True, "tickangle": 45},
+            yaxis={"fixedrange": True},
+            margin={"b": 120},  # Extra margin for rotated labels
         )
 
-    elif tab == "full":
-        return dbc.Container(
+        # Subtype Confusion Matrix
+        cm = pd.crosstab(
+            run_data_filtered["true_sub_type"],
+            run_data_filtered["pred_sub_type"],
+            rownames=["True Subtype"],
+            colnames=["Predicted Subtype"],
+        )
+        cm = cm.reindex(index=all_subtypes, columns=all_subtypes, fill_value=0)
+        labels = all_subtypes
+        z = cm.values
+        total = np.sum(z)
+        z_text = [
             [
-                dash_table.DataTable(
-                    columns=[
-                        {"name": "text", "id": "text"},
-                        {"name": "true_type", "id": "true_type"},
-                        {"name": "true_sub_type", "id": "true_sub_type"},
-                        {"name": "pred_sub_type", "id": "pred_sub_type"},
-                        {"name": "correct", "id": "correct"},
-                    ],
-                    data=df.to_dict("records"),
-                    style_table={"overflowX": "auto"},
-                    page_size=10,
+                (
+                    f"{count}<br>({count/total*100:.1f}%)"
+                    if total > 0
+                    else f"{count}<br>(0.0%)"
                 )
+                for count in row
             ]
+            for row in z
+        ]
+        try:
+            cm_fig = ff.create_annotated_heatmap(
+                z,
+                x=labels,
+                y=labels,
+                annotation_text=z_text,
+                colorscale="Blues",
+                showscale=True,
+            )
+            cm_fig.update_layout(
+                title="Subtype Confusion Matrix",
+                xaxis_title="Predicted Subtype",
+                yaxis_title="True Subtype",
+                clickmode="event+select",
+                dragmode=False,
+                xaxis={"fixedrange": True},
+                yaxis={"fixedrange": True},
+            )
+        except Exception as e:
+            return html.Div(f"Error creating confusion matrix: {str(e)}")
+
+        # Datapoint Table (initially all data)
+        datapoint_columns = [
+            {"name": "Text", "id": "text"},
+            {"name": "True Type", "id": "true_type"},
+            {"name": "True Subtype", "id": "true_sub_type"},
+            {"name": "Predicted Subtype", "id": "pred_sub_type"},
+            {"name": "Correct", "id": "correct"},
+        ]
+
+        return [
+            # Type Histogram (full width)
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            html.H4("Type Histogram"),
+                            dcc.Graph(
+                                id="type-histogram",
+                                figure=type_fig,
+                                config={"displayModeBar": False, "scrollZoom": False},
+                            ),
+                        ],
+                        width=12,
+                    )
+                ],
+                className="mb-4",
+            ),
+            # Confusion Matrix and Datapoint Table side by side
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            html.H4("Subtype Confusion Matrix"),
+                            dcc.Graph(
+                                id="confusion-matrix",
+                                figure=cm_fig,
+                                config={"displayModeBar": False, "scrollZoom": False},
+                            ),
+                        ],
+                        md=6,
+                    ),
+                    dbc.Col(
+                        [
+                            html.H4("Datapoint Table"),
+                            dash_table.DataTable(
+                                id="datapoint-table",
+                                columns=datapoint_columns,
+                                data=run_data_filtered.to_dict("records"),
+                                style_table={"overflowX": "auto"},
+                                style_cell={"textAlign": "left", "padding": "5px"},
+                                style_header={
+                                    "backgroundColor": "rgb(230, 230, 230)",
+                                    "fontWeight": "bold",
+                                },
+                                page_size=10,
+                            ),
+                        ],
+                        md=6,
+                    ),
+                ]
+            ),
+        ]
+
+    elif tab == "full-run":
+        return dash_table.DataTable(
+            columns=[
+                {"name": "Text", "id": "text"},
+                {"name": "True Type", "id": "true_type"},
+                {"name": "True Subtype", "id": "true_sub_type"},
+                {"name": "Predicted Subtype", "id": "pred_sub_type"},
+                {"name": "Correct", "id": "correct"},
+            ],
+            data=run_data_filtered.to_dict("records"),
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "5px"},
+            style_header={
+                "backgroundColor": "rgb(230, 230, 230)",
+                "fontWeight": "bold",
+            },
+            page_size=15,
         )
 
 
+# Combined callback to update datapoint table based on confusion matrix or histogram clicks
 @app.callback(
-    Output("confusion-click-data", "data"),
-    Input("cm-graph", "clickData"),
-    Input("leaderboard-table", "selected_rows"),
+    Output("datapoint-table", "data"),
+    [
+        Input("confusion-matrix", "clickData"),
+        Input("type-histogram", "clickData"),
+        Input("leaderboard-table", "selected_rows"),
+    ],
 )
-def update_table_on_click(clickData, selected_rows):
-    if clickData is None:
+def update_datapoint_table(confusion_click_data, histogram_click_data, selected_rows):
+    if not selected_rows:
         return []
-    run_id = leaderboard.iloc[selected_rows[0]]["Run ID"]
-    df = run_data[run_id]
-    point = clickData["points"][0]
-    true_val = point["y"]
-    pred_val = point["x"]
-    return df[
-        (df["true_sub_type"] == true_val) & (df["pred_sub_type"] == pred_val)
-    ].to_dict("records")
+
+    selected_run_id = run_data.iloc[selected_rows[0]]["run_id"]
+    run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
+
+    ctx = callback_context
+    if not ctx.triggered:
+        return run_data_filtered.to_dict("records")
+
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    if (
+        triggered_id == "confusion-matrix"
+        and confusion_click_data
+        and "points" in confusion_click_data
+    ):
+        point = confusion_click_data["points"][0]
+        true_subtype = point["y"]
+        pred_subtype = point["x"]
+        filtered = run_data_filtered[
+            (run_data_filtered["true_sub_type"] == true_subtype)
+            & (run_data_filtered["pred_sub_type"] == pred_subtype)
+        ]
+        return filtered.to_dict("records")
+
+    elif (
+        triggered_id == "type-histogram"
+        and histogram_click_data
+        and "points" in histogram_click_data
+    ):
+        point = histogram_click_data["points"][0]
+        true_type = point["x"]
+        filtered = run_data_filtered[run_data_filtered["true_type"] == true_type]
+        return filtered.to_dict("records")
+
+    return run_data_filtered.to_dict("records")
 
 
 if __name__ == "__main__":

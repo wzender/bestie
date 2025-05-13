@@ -22,14 +22,15 @@ run_data = pd.DataFrame(
     }
 )
 
-# Define all possible subtypes
+# Define all possible subtypes and types
 all_subtypes = ["Sub1", "Sub2", "Sub3", "Sub4"]
+all_types = [f"Type{i}" for i in range(1, 21)]  # 20 different types
 
 detailed_data = pd.DataFrame(
     {
         "run_id": [run_data["run_id"][i % len(run_data)] for i in range(500)],
         "text": [f"Sample text {i}" for i in range(500)],
-        "true_type": np.random.choice(["TypeA", "TypeB", "TypeC"], 500),
+        "true_type": np.random.choice(all_types, 500),
         "true_sub_type": np.random.choice(all_subtypes, 500),
         "pred_sub_type": np.random.choice(all_subtypes, 500),
     }
@@ -88,6 +89,8 @@ app.layout = dbc.Container(
             ],
         ),
         html.Div(id="tab-content", className="mt-3"),
+        # Store for selected true_type from histogram
+        dcc.Store(id="selected-true-type", data=None),
     ],
     fluid=True,
 )
@@ -96,18 +99,32 @@ app.layout = dbc.Container(
 # Callback to render tab content
 @app.callback(
     Output("tab-content", "children"),
-    [Input("analysis-tabs", "value"), Input("leaderboard-table", "selected_rows")],
+    [
+        Input("analysis-tabs", "value"),
+        Input("leaderboard-table", "selected_rows"),
+        Input("selected-true-type", "data"),
+    ],
 )
-def render_tab_content(tab, selected_rows):
+def render_tab_content(tab, selected_rows, selected_true_type):
     if not selected_rows:
         return html.Div("Select a run from the leaderboard")
 
     selected_run_id = run_data.iloc[selected_rows[0]]["run_id"]
     run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
 
+    # Apply true_type filter if selected
+    if selected_true_type and selected_true_type in all_types:
+        run_data_filtered = run_data_filtered[
+            run_data_filtered["true_type"] == selected_true_type
+        ]
+
     if tab == "error-analysis":
         # Type Histogram
-        type_counts = run_data_filtered["true_type"].value_counts().reset_index()
+        type_counts = (
+            detailed_data[detailed_data["run_id"] == selected_run_id]["true_type"]
+            .value_counts()
+            .reset_index()
+        )
         type_counts.columns = ["true_type", "count"]
         type_fig = px.bar(
             type_counts, x="true_type", y="count", title="True Type Distribution"
@@ -115,8 +132,9 @@ def render_tab_content(tab, selected_rows):
         type_fig.update_layout(
             clickmode="event+select",
             dragmode=False,
-            xaxis={"fixedrange": True},
+            xaxis={"fixedrange": True, "tickangle": 45},
             yaxis={"fixedrange": True},
+            margin={"b": 120},
         )
 
         # Subtype Confusion Matrix
@@ -162,7 +180,7 @@ def render_tab_content(tab, selected_rows):
         except Exception as e:
             return html.Div(f"Error creating confusion matrix: {str(e)}")
 
-        # Datapoint Table (initially all data)
+        # Datapoint Table (initially all data for the run, filtered by true_type if selected)
         datapoint_columns = [
             {"name": "Text", "id": "text"},
             {"name": "True Type", "id": "true_type"},
@@ -171,50 +189,59 @@ def render_tab_content(tab, selected_rows):
             {"name": "Correct", "id": "correct"},
         ]
 
-        return dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        html.H4("Type Histogram"),
-                        dcc.Graph(
-                            id="type-histogram",
-                            figure=type_fig,
-                            config={"displayModeBar": False, "scrollZoom": False},
-                        ),
-                    ],
-                    md=6,
-                ),
-                dbc.Col(
-                    [
-                        html.H4("Subtype Confusion Matrix"),
-                        dcc.Graph(
-                            id="confusion-matrix",
-                            figure=cm_fig,
-                            config={"displayModeBar": False, "scrollZoom": False},
-                        ),
-                    ],
-                    md=6,
-                ),
-                dbc.Col(
-                    [
-                        html.H4("Datapoint Table"),
-                        dash_table.DataTable(
-                            id="datapoint-table",
-                            columns=datapoint_columns,
-                            data=run_data_filtered.to_dict("records"),
-                            style_table={"overflowX": "auto"},
-                            style_cell={"textAlign": "left", "padding": "5px"},
-                            style_header={
-                                "backgroundColor": "rgb(230, 230, 230)",
-                                "fontWeight": "bold",
-                            },
-                            page_size=10,
-                        ),
-                    ],
-                    width=12,
-                ),
-            ]
-        )
+        return [
+            # Type Histogram (full width)
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            html.H4("Type Histogram"),
+                            dcc.Graph(
+                                id="type-histogram",
+                                figure=type_fig,
+                                config={"displayModeBar": False, "scrollZoom": False},
+                            ),
+                        ],
+                        width=12,
+                    )
+                ],
+                className="mb-4",
+            ),
+            # Confusion Matrix and Datapoint Table side by side
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            html.H4("Subtype Confusion Matrix"),
+                            dcc.Graph(
+                                id="confusion-matrix",
+                                figure=cm_fig,
+                                config={"displayModeBar": False, "scrollZoom": False},
+                            ),
+                        ],
+                        md=6,
+                    ),
+                    dbc.Col(
+                        [
+                            html.H4("Datapoint Table"),
+                            dash_table.DataTable(
+                                id="datapoint-table",
+                                columns=datapoint_columns,
+                                data=run_data_filtered.to_dict("records"),
+                                style_table={"overflowX": "auto"},
+                                style_cell={"textAlign": "left", "padding": "5px"},
+                                style_header={
+                                    "backgroundColor": "rgb(230, 230, 230)",
+                                    "fontWeight": "bold",
+                                },
+                                page_size=10,
+                            ),
+                        ],
+                        md=6,
+                    ),
+                ]
+            ),
+        ]
 
     elif tab == "full-run":
         return dash_table.DataTable(
@@ -236,33 +263,52 @@ def render_tab_content(tab, selected_rows):
         )
 
 
-# Combined callback to update datapoint table based on confusion matrix or histogram clicks
+# Callback to update selected-true-type store based on type-histogram clicks
+@app.callback(
+    Output("selected-true-type", "data"),
+    [
+        Input("type-histogram", "clickData"),
+        Input("leaderboard-table", "selected_rows"),
+        Input("analysis-tabs", "value"),
+    ],
+)
+def update_selected_true_type(click_data, selected_rows, tab):
+    ctx = callback_context
+    if not ctx.triggered or not selected_rows or tab != "error-analysis":
+        return None
+
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    if triggered_id == "type-histogram" and click_data and "points" in click_data:
+        true_type = click_data["points"][0]["x"]
+        if true_type in all_types:
+            return true_type
+
+    return None
+
+
+# Callback to update datapoint table based on confusion matrix clicks
 @app.callback(
     Output("datapoint-table", "data"),
     [
         Input("confusion-matrix", "clickData"),
-        Input("type-histogram", "clickData"),
         Input("leaderboard-table", "selected_rows"),
+        Input("selected-true-type", "data"),
     ],
 )
-def update_datapoint_table(confusion_click_data, histogram_click_data, selected_rows):
+def update_datapoint_table(confusion_click_data, selected_rows, selected_true_type):
     if not selected_rows:
         return []
 
     selected_run_id = run_data.iloc[selected_rows[0]]["run_id"]
     run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
 
-    ctx = callback_context
-    if not ctx.triggered:
-        return run_data_filtered.to_dict("records")
+    # Apply true_type filter if selected
+    if selected_true_type and selected_true_type in all_types:
+        run_data_filtered = run_data_filtered[
+            run_data_filtered["true_type"] == selected_true_type
+        ]
 
-    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
-    if (
-        triggered_id == "confusion-matrix"
-        and confusion_click_data
-        and "points" in confusion_click_data
-    ):
+    if confusion_click_data and "points" in confusion_click_data:
         point = confusion_click_data["points"][0]
         true_subtype = point["y"]
         pred_subtype = point["x"]
@@ -270,16 +316,6 @@ def update_datapoint_table(confusion_click_data, histogram_click_data, selected_
             (run_data_filtered["true_sub_type"] == true_subtype)
             & (run_data_filtered["pred_sub_type"] == pred_subtype)
         ]
-        return filtered.to_dict("records")
-
-    elif (
-        triggered_id == "type-histogram"
-        and histogram_click_data
-        and "points" in histogram_click_data
-    ):
-        point = histogram_click_data["points"][0]
-        true_type = point["x"]
-        filtered = run_data_filtered[run_data_filtered["true_type"] == true_type]
         return filtered.to_dict("records")
 
     return run_data_filtered.to_dict("records")
