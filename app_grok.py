@@ -1,6 +1,6 @@
 import dash
 from dash import dcc, html, dash_table
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.figure_factory as ff
@@ -45,50 +45,72 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
 # Layout
 app.layout = dbc.Container(
     [
-        html.H1("Magellan - Text Classification Leaderboard", className="my-4"),
-        # Leaderboard Table
-        html.H3("Leaderboard", className="mt-4"),
-        dash_table.DataTable(
-            id="leaderboard-table",
-            columns=[
-                {"name": "Run ID", "id": "run_id"},
-                {"name": "Sweep ID", "id": "sweep_id"},
-                {"name": "Model Parameters", "id": "model_params"},
-                {
-                    "name": "Accuracy",
-                    "id": "accuracy",
-                    "type": "numeric",
-                    "format": {"specifier": ".3f"},
-                },
-                {
-                    "name": "F1 Score",
-                    "id": "f1_score",
-                    "type": "numeric",
-                    "format": {"specifier": ".3f"},
-                },
-            ],
-            data=run_data.to_dict("records"),
-            style_table={"overflowX": "auto"},
-            style_cell={"textAlign": "left", "padding": "5px"},
-            style_header={
-                "backgroundColor": "rgb(230, 230, 230)",
-                "fontWeight": "bold",
-            },
-            row_selectable="single",
-            selected_rows=[0],
-            page_size=10,
+        html.H1("Magellan - Text Classification Leaderboard", className="my-2"),
+        dbc.Row(
+            [
+                # Leaderboard Table (1/3 width)
+                dbc.Col(
+                    [
+                        html.H3("Leaderboard", className="mt-2 mb-2"),
+                        dash_table.DataTable(
+                            id="leaderboard-table",
+                            columns=[
+                                {"name": "Run ID", "id": "run_id"},
+                                {"name": "Sweep ID", "id": "sweep_id"},
+                                {"name": "Params", "id": "model_params"},
+                                {
+                                    "name": "Acc",
+                                    "id": "accuracy",
+                                    "type": "numeric",
+                                    "format": {"specifier": ".3f"},
+                                },
+                                {
+                                    "name": "F1",
+                                    "id": "f1_score",
+                                    "type": "numeric",
+                                    "format": {"specifier": ".3f"},
+                                },
+                            ],
+                            data=run_data.to_dict("records"),
+                            style_table={"overflowX": "auto"},
+                            style_cell={
+                                "textAlign": "left",
+                                "padding": "3px",
+                                "fontSize": "12px",
+                            },
+                            style_header={
+                                "backgroundColor": "rgb(230, 230, 230)",
+                                "fontWeight": "bold",
+                                "fontSize": "12px",
+                            },
+                            row_selectable="single",
+                            selected_rows=[0],
+                            page_size=10,
+                        ),
+                    ],
+                    md=4,
+                    className="pe-2",
+                ),
+                # Run Analysis (2/3 width)
+                dbc.Col(
+                    [
+                        html.H3("Run Analysis", className="mt-2 mb-2"),
+                        dcc.Tabs(
+                            id="analysis-tabs",
+                            value="error-analysis",
+                            children=[
+                                dcc.Tab(label="Error Analysis", value="error-analysis"),
+                                dcc.Tab(label="Full Run Table", value="full-run"),
+                            ],
+                            className="mb-2",
+                        ),
+                        html.Div(id="tab-content"),
+                    ],
+                    md=8,
+                    className="ps-2",
+                ),
+            ]
         ),
-        # Run Analysis Tabs
-        html.H3("Run Analysis", className="mt-4"),
-        dcc.Tabs(
-            id="analysis-tabs",
-            value="error-analysis",
-            children=[
-                dcc.Tab(label="Error Analysis", value="error-analysis"),
-                dcc.Tab(label="Full Run Table", value="full-run"),
-            ],
-        ),
-        html.Div(id="tab-content", className="mt-3"),
         # Store for selected true_type from histogram
         dcc.Store(id="selected-true-type", data=None),
     ],
@@ -98,19 +120,41 @@ app.layout = dbc.Container(
 
 # Callback to render tab content
 @app.callback(
-    Output("tab-content", "children"),
+    [Output("tab-content", "children"), Output("selected-true-type", "data")],
     [
         Input("analysis-tabs", "value"),
         Input("leaderboard-table", "selected_rows"),
         Input("selected-true-type", "data"),
     ],
+    [State("type-histogram", "clickData")],
 )
-def render_tab_content(tab, selected_rows, selected_true_type):
+def render_tab_content(
+    tab, selected_rows, prev_selected_true_type, histogram_click_data
+):
     if not selected_rows:
-        return html.Div("Select a run from the leaderboard")
+        return html.Div("Select a run from the leaderboard"), None
 
     selected_run_id = run_data.iloc[selected_rows[0]]["run_id"]
     run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
+
+    # Handle histogram click to update selected_true_type
+    selected_true_type = prev_selected_true_type
+    ctx = callback_context
+    if (
+        ctx.triggered
+        and ctx.triggered[0]["prop_id"] == "selected-true-type.data"
+        and histogram_click_data
+        and "points" in histogram_click_data
+    ):
+        new_true_type = histogram_click_data["points"][0]["x"]
+        if new_true_type in all_types:
+            selected_true_type = new_true_type
+    # Reset selected_true_type when changing runs or tabs
+    if ctx.triggered and ctx.triggered[0]["prop_id"] in [
+        "leaderboard-table.selected_rows",
+        "analysis-tabs.value",
+    ]:
+        selected_true_type = None
 
     # Apply true_type filter if selected
     if selected_true_type and selected_true_type in all_types:
@@ -178,24 +222,24 @@ def render_tab_content(tab, selected_rows, selected_true_type):
                 yaxis={"fixedrange": True},
             )
         except Exception as e:
-            return html.Div(f"Error creating confusion matrix: {str(e)}")
+            return html.Div(f"Error creating confusion matrix: {str(e)}"), None
 
         # Datapoint Table (initially all data for the run, filtered by true_type if selected)
         datapoint_columns = [
             {"name": "Text", "id": "text"},
             {"name": "True Type", "id": "true_type"},
             {"name": "True Subtype", "id": "true_sub_type"},
-            {"name": "Predicted Subtype", "id": "pred_sub_type"},
+            {"name": "Pred Subtype", "id": "pred_sub_type"},
             {"name": "Correct", "id": "correct"},
         ]
 
-        return [
+        content = [
             # Type Histogram (full width)
             dbc.Row(
                 [
                     dbc.Col(
                         [
-                            html.H4("Type Histogram"),
+                            html.H4("Type Histogram", className="mb-1"),
                             dcc.Graph(
                                 id="type-histogram",
                                 figure=type_fig,
@@ -205,14 +249,14 @@ def render_tab_content(tab, selected_rows, selected_true_type):
                         width=12,
                     )
                 ],
-                className="mb-4",
+                className="mb-2",
             ),
             # Confusion Matrix and Datapoint Table side by side
             dbc.Row(
                 [
                     dbc.Col(
                         [
-                            html.H4("Subtype Confusion Matrix"),
+                            html.H4("Subtype Confusion Matrix", className="mb-1"),
                             dcc.Graph(
                                 id="confusion-matrix",
                                 figure=cm_fig,
@@ -220,70 +264,59 @@ def render_tab_content(tab, selected_rows, selected_true_type):
                             ),
                         ],
                         md=6,
+                        className="pe-1",
                     ),
                     dbc.Col(
                         [
-                            html.H4("Datapoint Table"),
+                            html.H4("Datapoint Table", className="mb-1"),
                             dash_table.DataTable(
                                 id="datapoint-table",
                                 columns=datapoint_columns,
                                 data=run_data_filtered.to_dict("records"),
                                 style_table={"overflowX": "auto"},
-                                style_cell={"textAlign": "left", "padding": "5px"},
+                                style_cell={
+                                    "textAlign": "left",
+                                    "padding": "3px",
+                                    "fontSize": "12px",
+                                },
                                 style_header={
                                     "backgroundColor": "rgb(230, 230, 230)",
                                     "fontWeight": "bold",
+                                    "fontSize": "12px",
                                 },
                                 page_size=10,
                             ),
                         ],
                         md=6,
+                        className="ps-1",
                     ),
                 ]
             ),
         ]
+        return content, selected_true_type
 
     elif tab == "full-run":
-        return dash_table.DataTable(
-            columns=[
-                {"name": "Text", "id": "text"},
-                {"name": "True Type", "id": "true_type"},
-                {"name": "True Subtype", "id": "true_sub_type"},
-                {"name": "Predicted Subtype", "id": "pred_sub_type"},
-                {"name": "Correct", "id": "correct"},
-            ],
-            data=run_data_filtered.to_dict("records"),
-            style_table={"overflowX": "auto"},
-            style_cell={"textAlign": "left", "padding": "5px"},
-            style_header={
-                "backgroundColor": "rgb(230, 230, 230)",
-                "fontWeight": "bold",
-            },
-            page_size=15,
+        return (
+            dash_table.DataTable(
+                columns=[
+                    {"name": "Text", "id": "text"},
+                    {"name": "True Type", "id": "true_type"},
+                    {"name": "True Subtype", "id": "true_sub_type"},
+                    {"name": "Pred Subtype", "id": "pred_sub_type"},
+                    {"name": "Correct", "id": "correct"},
+                ],
+                data=run_data_filtered.to_dict("records"),
+                style_table={"overflowX": "auto"},
+                style_cell={"textAlign": "left", "padding": "3px", "fontSize": "12px"},
+                style_header={
+                    "backgroundColor": "rgb(230, 230, 230)",
+                    "fontWeight": "bold",
+                    "fontSize": "12px",
+                },
+                page_size=15,
+            ),
+            None,
         )
-
-
-# Callback to update selected-true-type store based on type-histogram clicks
-@app.callback(
-    Output("selected-true-type", "data"),
-    [
-        Input("type-histogram", "clickData"),
-        Input("leaderboard-table", "selected_rows"),
-        Input("analysis-tabs", "value"),
-    ],
-)
-def update_selected_true_type(click_data, selected_rows, tab):
-    ctx = callback_context
-    if not ctx.triggered or not selected_rows or tab != "error-analysis":
-        return None
-
-    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
-    if triggered_id == "type-histogram" and click_data and "points" in click_data:
-        true_type = click_data["points"][0]["x"]
-        if true_type in all_types:
-            return true_type
-
-    return None
 
 
 # Callback to update datapoint table based on confusion matrix clicks
