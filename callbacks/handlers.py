@@ -8,20 +8,40 @@ import pandas as pd
 run_data = {
     "run_01": pd.DataFrame(
         {
-            "text": ["doc1", "doc2", "doc3"],
-            "pred": ["A", "B", "C"],
-            "true": ["A", "C", "C"],
-            "type": ["T1", "T2", "T3"],
-            "subtype": ["A", "B", "C"],
+            "text": [
+                "doc1",
+                "doc2",
+                "doc3",
+                "doc4",
+                "doc5",
+                "doc6",
+                "doc7",
+                "doc8",
+                "doc9",
+            ],
+            "pred": ["A1", "A2", "B1", "B2", "B3", "C1", "A1", "B2", "C1"],
+            "true": ["A1", "A1", "B1", "B2", "B2", "C1", "A2", "B3", "C1"],
+            "type": ["A", "A", "B", "B", "B", "C", "A", "B", "C"],
+            "subtype": ["A1", "A2", "B1", "B2", "B3", "C1", "A1", "B2", "C1"],
         }
     ),
     "run_02": pd.DataFrame(
         {
-            "text": ["doc4", "doc5", "doc6"],
-            "pred": ["B", "C", "A"],
-            "true": ["A", "C", "A"],
-            "type": ["T1", "T2", "T3"],
-            "subtype": ["B", "C", "A"],
+            "text": [
+                "doc10",
+                "doc11",
+                "doc12",
+                "doc13",
+                "doc14",
+                "doc15",
+                "doc16",
+                "doc17",
+                "doc18",
+            ],
+            "pred": ["A2", "A1", "B3", "B1", "B2", "C1", "A2", "B3", "C1"],
+            "true": ["A1", "A2", "B2", "B1", "B3", "C1", "A1", "B2", "C1"],
+            "type": ["A", "A", "B", "B", "B", "C", "A", "B", "C"],
+            "subtype": ["A2", "A1", "B3", "B1", "B2", "C1", "A2", "B2", "C1"],
         }
     ),
 }
@@ -33,7 +53,7 @@ leaderboard_df = pd.DataFrame(
             "Sweep ID": "sweep_01",
             "Model Name": "bert-base",
             "Duration (s)": 123.4,
-            "# Items": 3,
+            "# Items": 9,
             "Benchmark Version": "v1.0",
             "Accuracy": 0.91,
             "F1": 0.89,
@@ -55,6 +75,56 @@ leaderboard_df = pd.DataFrame(
 
 
 def register_callbacks(app):
+
+    @app.callback(
+        Output("confusion-matrix", "figure"),
+        Input("type-histogram", "clickData"),
+        State("leaderboard-table", "selected_rows"),
+        prevent_initial_call=True,
+    )
+    def update_subtype_confusion(clickData, selected_rows):
+        if not clickData or not selected_rows:
+            return ff.create_annotated_heatmap(
+                z=[[0]], x=[""], y=[""], annotation_text=[[""]]
+            )
+
+        selected_type = clickData["points"][0]["x"]
+        run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
+        df = run_data[run_id]
+        df_filtered = df[df["type"] == selected_type]
+
+        cm = pd.crosstab(
+            df_filtered["true"],
+            df_filtered["pred"],
+            rownames=["True"],
+            colnames=["Pred"],
+        )
+        percentages = cm.div(cm.sum(axis=1), axis=0).fillna(0)
+        annotations = [
+            [f"{val}<br>{percent:.1%}" for val, percent in zip(row_vals, row_pcts)]
+            for row_vals, row_pcts in zip(cm.values, percentages.values)
+        ]
+
+        fig = ff.create_annotated_heatmap(
+            z=cm.values,
+            x=list(cm.columns),
+            y=list(cm.index),
+            annotation_text=annotations,
+            colorscale="Viridis",
+            showscale=True,
+            xgap=3,
+            ygap=3,
+            hoverinfo="z",
+            font_colors=["white"],
+        )
+
+        fig.update_layout(
+            title=f"Subtype Confusion Matrix for Type: {selected_type}",
+            xaxis_title="Predicted Label",
+            yaxis_title="True Label",
+            clickmode="event+select",
+        )
+        return fig
 
     @app.callback(
         Output("run-analysis", "children"), Input("leaderboard-table", "selected_rows")
@@ -105,6 +175,32 @@ def register_callbacks(app):
         df = run_data[run_id]
 
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        if trigger_id == "show-table-btn":
+            return dash_table.DataTable(
+                id="base-table",
+                columns=[{"name": i, "id": i} for i in df.columns],
+                data=df.to_dict("records"),
+                page_size=10,
+                filter_action="native",
+                sort_action="native",
+                style_table={"overflowX": "auto"},
+            )
+
+        type_hist = px.histogram(df, x="type", title="Type Distribution")
+        return html.Div(
+            [
+                dcc.Graph(id="type-histogram", figure=type_hist),
+                dcc.Graph(id="confusion-matrix"),
+                dash_table.DataTable(
+                    id="filtered-table",
+                    columns=[{"name": i, "id": i} for i in df.columns],
+                    data=[],
+                    page_size=5,
+                    style_table={"overflowX": "auto"},
+                ),
+            ]
+        )
         if trigger_id == "show-table-btn":
             return dash_table.DataTable(
                 id="base-table",
