@@ -1,0 +1,19 @@
+{
+    // Formatter settings
+    "python.formatting.provider": "black",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": true,
+        "source.fixAll": true
+    },
+    // Linter settings
+    "python.linting.enabled": true,
+    "python.linting.ruffEnabled": true,
+    //   Optional: Specify path to formatter/linter if installed in virtualenv
+    "python.formatting.blackPath": "venv/bin/ruff",
+    "python.linting.ruffPath": "venv/bin/ruff",
+    // Additional quality-of-life
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "python.analysis.autoImportCompletions": true
+}
