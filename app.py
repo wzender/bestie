@@ -22,18 +22,27 @@ run_data = pd.DataFrame(
     }
 )
 
-# Define all possible subtypes and types
-all_subtypes = ["Sub1", "Sub2", "Sub3", "Sub4"]
-all_types = [f"Type{i}" for i in range(1, 21)]  # 20 different types
+# Define types and subtypes
+all_types = [chr(65 + i) for i in range(20)]  # ["A", "B", "C", ..., "T"]
+all_subtypes = [
+    f"{t}{i}" for t in all_types for i in [1, 2]
+]  # ["A1", "A2", "B1", "B2", ..., "T1", "T2"]
 
+# Generate detailed data with type-subtype relationship
+n_detailed = 500
 detailed_data = pd.DataFrame(
     {
-        "run_id": [run_data["run_id"][i % len(run_data)] for i in range(500)],
-        "text": [f"Sample text {i}" for i in range(500)],
-        "true_type": np.random.choice(all_types, 500),
-        "true_sub_type": np.random.choice(all_subtypes, 500),
-        "pred_sub_type": np.random.choice(all_subtypes, 500),
+        "run_id": [run_data["run_id"][i % len(run_data)] for i in range(n_detailed)],
+        "text": [f"Sample text {i}" for i in range(n_detailed)],
+        "true_type": np.random.choice(all_types, n_detailed),
     }
+)
+# Assign true_sub_type and pred_sub_type based on true_type
+detailed_data["true_sub_type"] = detailed_data["true_type"].apply(
+    lambda t: np.random.choice([f"{t}1", f"{t}2"])
+)
+detailed_data["pred_sub_type"] = detailed_data["true_type"].apply(
+    lambda t: np.random.choice([f"{t}1", f"{t}2"])
 )
 detailed_data["correct"] = (
     detailed_data["true_sub_type"] == detailed_data["pred_sub_type"]
@@ -221,8 +230,11 @@ def render_tab_content(tab, selected_rows, histogram_click_data):
             )
         )
         if not relevant_subtypes:
+            # Fallback to subtypes for the selected type or all subtypes
             relevant_subtypes = (
-                all_subtypes  # Fallback to all subtypes if none are present
+                [f"{selected_true_type}{i}" for i in [1, 2]]
+                if selected_true_type
+                else all_subtypes
             )
         cm = pd.crosstab(
             run_data_filtered["true_sub_type"],
@@ -403,5 +415,4 @@ def update_datapoint_table(confusion_click_data, selected_rows, selected_true_ty
 
 
 if __name__ == "__main__":
-    render_com_port = 10000
-    app.run(host="0.0.0.0", debug=True, port=render_com_port)
+    app.run(debug=True)
