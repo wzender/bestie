@@ -87,8 +87,7 @@ def register_callbacks(app):
                     style={"marginLeft": "10px"},
                 ),
                 html.Div(id="analysis-content"),
-                html.H3("Full Dataset"),
-                base_table,
+                # base_table,
             ]
         )
 
@@ -102,9 +101,20 @@ def register_callbacks(app):
         if not ctx.triggered or not selected_rows:
             return no_update
 
+        run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
+        df = run_data[run_id]
+
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
         if trigger_id == "show-table-btn":
-            return html.Div()
+            return dash_table.DataTable(
+                id="base-table",
+                columns=[{"name": i, "id": i} for i in df.columns],
+                data=df.to_dict("records"),
+                page_size=10,
+                filter_action="native",
+                sort_action="native",
+                style_table={"overflowX": "auto"},
+            )
 
         run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
         df = run_data[run_id]
