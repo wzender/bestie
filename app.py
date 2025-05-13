@@ -10,4 +10,5 @@ app.layout = layout
 register_callbacks(app)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", debug=True, port=10000)
+    render_com_port = 10000
+    app.run(host="0.0.0.0", debug=False, port=render_com_port)

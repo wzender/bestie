@@ -19,10 +19,10 @@ run_data = {
                 "doc8",
                 "doc9",
             ],
-            "pred": ["A1", "A2", "B1", "B2", "B3", "C1", "A1", "B2", "C1"],
-            "true": ["A1", "A1", "B1", "B2", "B2", "C1", "A2", "B3", "C1"],
-            "type": ["A", "A", "B", "B", "B", "C", "A", "B", "C"],
-            "subtype": ["A1", "A2", "B1", "B2", "B3", "C1", "A1", "B2", "C1"],
+            "pred_subtype": ["A1", "A2", "B1", "B2", "B3", "C1", "A1", "B2", "C1"],
+            "pred_type": ["A", "A", "B", "B", "B", "C", "A", "B", "C"],
+            "true_subtype": ["A1", "A1", "B1", "B2", "B2", "C1", "A2", "B3", "C1"],
+            "true_type": ["A", "A", "B", "B", "B", "C", "A", "B", "C"],
         }
     ),
     "run_02": pd.DataFrame(
@@ -38,10 +38,10 @@ run_data = {
                 "doc17",
                 "doc18",
             ],
-            "pred": ["A2", "A1", "B3", "B1", "B2", "C1", "A2", "B3", "C1"],
-            "true": ["A1", "A2", "B2", "B1", "B3", "C1", "A1", "B2", "C1"],
-            "type": ["A", "A", "B", "B", "B", "C", "A", "B", "C"],
-            "subtype": ["A2", "A1", "B3", "B1", "B2", "C1", "A2", "B2", "C1"],
+            "pred_subtype": ["A1", "A2", "B1", "B2", "C3", "C1", "A1", "C2", "C1"],
+            "pred_type": ["A", "A", "B", "B", "C", "C", "A", "C", "C"],
+            "true_subtype": ["A1", "A1", "C1", "C2", "B2", "C1", "A2", "B3", "A1"],
+            "true_type": ["A", "A", "C", "C", "B", "C", "A", "B", "A"],
         }
     ),
 }
@@ -91,13 +91,13 @@ def register_callbacks(app):
         selected_type = clickData["points"][0]["x"]
         run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
         df = run_data[run_id]
-        df_filtered = df[df["type"] == selected_type]
+        df_filtered = df[df["true_type"] == selected_type]
 
         cm = pd.crosstab(
-            df_filtered["true"],
-            df_filtered["pred"],
-            rownames=["True"],
-            colnames=["Pred"],
+            df_filtered["true_subtype"],
+            df_filtered["pred_subtype"],
+            rownames=["True Subtype"],
+            colnames=["Pred Subtype"],
         )
         percentages = cm.div(cm.sum(axis=1), axis=0).fillna(0)
         annotations = [
@@ -136,16 +136,6 @@ def register_callbacks(app):
         run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
         df = run_data[run_id]
 
-        base_table = dash_table.DataTable(
-            id="base-table",
-            columns=[{"name": i, "id": i} for i in df.columns],
-            data=df.to_dict("records"),
-            page_size=10,
-            filter_action="native",
-            sort_action="native",
-            style_table={"overflowX": "auto"},
-        )
-
         return html.Div(
             [
                 html.H2(f"Run: {run_id}"),
@@ -157,7 +147,6 @@ def register_callbacks(app):
                     style={"marginLeft": "10px"},
                 ),
                 html.Div(id="analysis-content"),
-                # base_table,
             ]
         )
 
@@ -187,7 +176,7 @@ def register_callbacks(app):
                 style_table={"overflowX": "auto"},
             )
 
-        type_hist = px.histogram(df, x="type", title="Type Distribution")
+        type_hist = px.histogram(df, x="true_type", title="Type Distribution")
         return html.Div(
             [
                 dcc.Graph(id="type-histogram", figure=type_hist),
@@ -196,65 +185,6 @@ def register_callbacks(app):
                     id="filtered-table",
                     columns=[{"name": i, "id": i} for i in df.columns],
                     data=[],
-                    page_size=5,
-                    style_table={"overflowX": "auto"},
-                ),
-            ]
-        )
-        if trigger_id == "show-table-btn":
-            return dash_table.DataTable(
-                id="base-table",
-                columns=[{"name": i, "id": i} for i in df.columns],
-                data=df.to_dict("records"),
-                page_size=10,
-                filter_action="native",
-                sort_action="native",
-                style_table={"overflowX": "auto"},
-            )
-
-        run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
-        df = run_data[run_id]
-
-        cm = pd.crosstab(df["true"], df["pred"], rownames=["True"], colnames=["Pred"])
-        percentages = cm.div(cm.sum(axis=1), axis=0).fillna(0)
-        annotations = [
-            [f"{val}<br>{percent:.1%}" for val, percent in zip(row_vals, row_pcts)]
-            for row_vals, row_pcts in zip(cm.values, percentages.values)
-        ]
-
-        fig = ff.create_annotated_heatmap(
-            z=cm.values,
-            x=list(cm.columns),
-            y=list(cm.index),
-            annotation_text=annotations,
-            colorscale="Viridis",
-            showscale=True,
-            xgap=3,
-            ygap=3,
-            hoverinfo="z",
-            font_colors=["white"],
-        )
-
-        fig.update_layout(
-            title="Confusion Matrix",
-            xaxis_title="Predicted Label",
-            yaxis_title="True Label",
-            clickmode="event+select",
-        )
-
-        type_hist = px.histogram(df, x="type", title="Type Distribution")
-        subtype_hist = px.histogram(df, x="subtype", title="Subtype Distribution")
-
-        return html.Div(
-            [
-                dcc.Graph(id="confusion-matrix", figure=fig),
-                dcc.Graph(figure=type_hist),
-                dcc.Graph(figure=subtype_hist),
-                html.H3("Filtered Datapoint Table"),
-                dash_table.DataTable(
-                    id="filtered-table",
-                    columns=[{"name": i, "id": i} for i in df.columns],
-                    data=df.to_dict("records"),
                     page_size=5,
                     style_table={"overflowX": "auto"},
                 ),
@@ -271,7 +201,7 @@ def register_callbacks(app):
             return None
         true_val = clickData["points"][0]["y"]
         pred_val = clickData["points"][0]["x"]
-        return {"true": true_val, "pred": pred_val}
+        return {"true_subtype": true_val, "pred_subtype": pred_val}
 
     @app.callback(
         Output("filtered-table", "data"),
@@ -287,8 +217,8 @@ def register_callbacks(app):
 
         if selected_cell:
             df = df[
-                (df["true"] == selected_cell["true"])
-                & (df["pred"] == selected_cell["pred"])
+                (df["true_subtype"] == selected_cell["true_subtype"])
+                & (df["pred_subtype"] == selected_cell["pred_subtype"])
             ]
 
         return df.to_dict("records")
