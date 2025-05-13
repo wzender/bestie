@@ -79,10 +79,11 @@ def register_callbacks(app):
     @app.callback(
         Output("confusion-matrix", "figure"),
         Input("type-histogram", "clickData"),
+        Input("show-mistakes-toggle", "value"),
         State("leaderboard-table", "selected_rows"),
         prevent_initial_call=True,
     )
-    def update_subtype_confusion(clickData, selected_rows):
+    def update_subtype_confusion(clickData, show_mistakes, selected_rows):
         if not clickData or not selected_rows:
             return ff.create_annotated_heatmap(
                 z=[[0]], x=[""], y=[""], annotation_text=[[""]]
@@ -91,6 +92,8 @@ def register_callbacks(app):
         selected_type = clickData["points"][0]["x"]
         run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
         df = run_data[run_id]
+        if "mistakes" in show_mistakes:
+            df = df[df["true_subtype"] != df["pred_subtype"]]
         df_filtered = df[df["true_type"] == selected_type]
 
         cm = pd.crosstab(
@@ -110,7 +113,11 @@ def register_callbacks(app):
             x=list(cm.columns),
             y=list(cm.index),
             annotation_text=annotations,
-            colorscale="Viridis",
+            colorscale=[
+                [0.0, "rgb(0,0,0)"],
+                [0.7, "rgb(100,0,200)"],
+                [1.0, "rgb(200,80,80)"],  # Avoid light yellow
+            ],
             showscale=True,
             xgap=3,
             ygap=3,
@@ -123,7 +130,10 @@ def register_callbacks(app):
             xaxis_title="Predicted Label",
             yaxis_title="True Label",
             clickmode="event+select",
+            dragmode=False,  # disables pan/zoom
+            modebar_remove=["zoom", "pan", "select", "lasso2d"],
         )
+
         return fig
 
     @app.callback(
@@ -201,6 +211,9 @@ def register_callbacks(app):
             )
 
         type_hist = px.histogram(df, x="true_type", title="Type Distribution")
+        type_hist.update_layout(
+            dragmode=False, modebar_remove=["zoom", "pan", "select", "lasso2d"]
+        )
         return html.Div(
             [
                 dcc.Graph(id="type-histogram", figure=type_hist),
