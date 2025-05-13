@@ -134,18 +134,39 @@ def register_callbacks(app):
             return html.Div("Select a run from the leaderboard.")
 
         run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
-        df = run_data[run_id]
 
         return html.Div(
             [
                 html.H2(f"Run: {run_id}"),
-                html.Button("Show Analysis", id="show-analysis-btn", n_clicks=0),
-                html.Button(
-                    "Back to Table",
-                    id="show-table-btn",
-                    n_clicks=0,
-                    style={"marginLeft": "10px"},
+                html.Div(
+                    [
+                        html.Button(
+                            "Show Analysis", id="show-analysis-btn", n_clicks=0
+                        ),
+                        html.Button(
+                            "Show Table",
+                            id="show-table-btn",
+                            n_clicks=0,
+                            style={"marginRight": "10px"},
+                        ),
+                        dcc.Checklist(
+                            options=[
+                                {"label": "Show only mistakes", "value": "mistakes"}
+                            ],
+                            value=[],
+                            id="show-mistakes-toggle",
+                            inline=True,
+                            style={"marginTop": "0px"},
+                        ),
+                    ],
+                    style={"display": "flex", "alignItems": "center", "gap": "10px"},
                 ),
+                # dcc.Checklist(
+                #     options=[{"label": "Show only mistakes", "value": "mistakes"}],
+                #     value=[],
+                #     id="show-mistakes-toggle",
+                #     style={"marginLeft": "10px"},
+                # ),
                 html.Div(id="analysis-content"),
             ]
         )
@@ -154,14 +175,17 @@ def register_callbacks(app):
         Output("analysis-content", "children"),
         Input("show-analysis-btn", "n_clicks"),
         Input("show-table-btn", "n_clicks"),
+        Input("show-mistakes-toggle", "value"),
         State("leaderboard-table", "selected_rows"),
     )
-    def render_analysis(n_analysis, n_table, selected_rows):
+    def render_analysis(n_analysis, n_table, show_mistakes, selected_rows):
         if not ctx.triggered or not selected_rows:
             return no_update
 
         run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
         df = run_data[run_id]
+        if "mistakes" in show_mistakes:
+            df = df[df["true_subtype"] != df["pred_subtype"]]
 
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
@@ -207,13 +231,16 @@ def register_callbacks(app):
         Output("filtered-table", "data"),
         Input("selected-cm-cell", "data"),
         Input("leaderboard-table", "selected_rows"),
+        State("show-mistakes-toggle", "value"),
     )
-    def filter_table(selected_cell, selected_rows):
+    def filter_table(selected_cell, selected_rows, show_mistakes):
         if not selected_rows:
             return []
 
         run_id = leaderboard_df.iloc[selected_rows[0]]["Run ID"]
         df = run_data[run_id]
+        if "mistakes" in show_mistakes:
+            df = df[df["true_subtype"] != df["pred_subtype"]]
 
         if selected_cell:
             df = df[
