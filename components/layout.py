@@ -32,7 +32,7 @@ leaderboard_df = pd.DataFrame(
 
 layout = html.Div(
     [
-        html.H1("🧠 Bestie — Text Classification Leaderboard"),
+        html.H1("🧠 Magellan — Text Classification Leaderboard"),
         html.H2("Leaderboard Table"),
         dash_table.DataTable(
             id="leaderboard-table",

@@ -4,7 +4,7 @@ from components.layout import layout
 from callbacks.handlers import register_callbacks
 
 app = Dash(__name__, suppress_callback_exceptions=True)
-app.title = "Bestie Leaderboard"
+app.title = "Magellan Leaderboard"
 
 app.layout = layout
 register_callbacks(app)
