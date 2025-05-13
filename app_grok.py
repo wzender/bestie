@@ -7,6 +7,7 @@ import plotly.figure_factory as ff
 import pandas as pd
 import numpy as np
 from uuid import uuid4
+from dash import callback_context
 
 # Sample data (replace with your actual data loading logic)
 np.random.seed(42)
@@ -111,21 +112,23 @@ def render_tab_content(tab, selected_rows):
         type_fig = px.bar(
             type_counts, x="true_type", y="count", title="True Type Distribution"
         )
-        type_fig.update_layout(clickmode="event+select")
+        type_fig.update_layout(
+            clickmode="event+select",
+            dragmode=False,
+            xaxis={"fixedrange": True},
+            yaxis={"fixedrange": True},
+        )
 
         # Subtype Confusion Matrix
-        # Ensure all subtypes are included in the crosstab
         cm = pd.crosstab(
             run_data_filtered["true_sub_type"],
             run_data_filtered["pred_sub_type"],
             rownames=["True Subtype"],
             colnames=["Predicted Subtype"],
         )
-        # Reindex to include all possible subtypes, filling missing with 0
         cm = cm.reindex(index=all_subtypes, columns=all_subtypes, fill_value=0)
         labels = all_subtypes
         z = cm.values
-        # Add percentage annotations
         total = np.sum(z)
         z_text = [
             [
@@ -152,6 +155,9 @@ def render_tab_content(tab, selected_rows):
                 xaxis_title="Predicted Subtype",
                 yaxis_title="True Subtype",
                 clickmode="event+select",
+                dragmode=False,
+                xaxis={"fixedrange": True},
+                yaxis={"fixedrange": True},
             )
         except Exception as e:
             return html.Div(f"Error creating confusion matrix: {str(e)}")
@@ -170,14 +176,22 @@ def render_tab_content(tab, selected_rows):
                 dbc.Col(
                     [
                         html.H4("Type Histogram"),
-                        dcc.Graph(id="type-histogram", figure=type_fig),
+                        dcc.Graph(
+                            id="type-histogram",
+                            figure=type_fig,
+                            config={"displayModeBar": False, "scrollZoom": False},
+                        ),
                     ],
                     md=6,
                 ),
                 dbc.Col(
                     [
                         html.H4("Subtype Confusion Matrix"),
-                        dcc.Graph(id="confusion-matrix", figure=cm_fig),
+                        dcc.Graph(
+                            id="confusion-matrix",
+                            figure=cm_fig,
+                            config={"displayModeBar": False, "scrollZoom": False},
+                        ),
                     ],
                     md=6,
                 ),
@@ -222,29 +236,50 @@ def render_tab_content(tab, selected_rows):
         )
 
 
-# Callback to update datapoint table based on confusion matrix clicks
+# Combined callback to update datapoint table based on confusion matrix or histogram clicks
 @app.callback(
     Output("datapoint-table", "data"),
     [
         Input("confusion-matrix", "clickData"),
+        Input("type-histogram", "clickData"),
         Input("leaderboard-table", "selected_rows"),
     ],
 )
-def update_datapoint_table(click_data, selected_rows):
+def update_datapoint_table(confusion_click_data, histogram_click_data, selected_rows):
     if not selected_rows:
         return []
 
     selected_run_id = run_data.iloc[selected_rows[0]]["run_id"]
     run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
 
-    if click_data and "points" in click_data:
-        point = click_data["points"][0]
+    ctx = callback_context
+    if not ctx.triggered:
+        return run_data_filtered.to_dict("records")
+
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    if (
+        triggered_id == "confusion-matrix"
+        and confusion_click_data
+        and "points" in confusion_click_data
+    ):
+        point = confusion_click_data["points"][0]
         true_subtype = point["y"]
         pred_subtype = point["x"]
         filtered = run_data_filtered[
             (run_data_filtered["true_sub_type"] == true_subtype)
             & (run_data_filtered["pred_sub_type"] == pred_subtype)
         ]
+        return filtered.to_dict("records")
+
+    elif (
+        triggered_id == "type-histogram"
+        and histogram_click_data
+        and "points" in histogram_click_data
+    ):
+        point = histogram_click_data["points"][0]
+        true_type = point["x"]
+        filtered = run_data_filtered[run_data_filtered["true_type"] == true_type]
         return filtered.to_dict("records")
 
     return run_data_filtered.to_dict("records")
