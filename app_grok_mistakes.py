@@ -47,8 +47,10 @@ detailed_data["correct"] = (
     detailed_data["true_sub_type"] == detailed_data["pred_sub_type"]
 )
 
-# Initialize Dash app with Bootstrap Lux theme
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
+# Initialize Dash app with Bootstrap Lux theme and suppress callback exceptions
+app = dash.Dash(
+    __name__, external_stylesheets=[dbc.themes.LUX], suppress_callback_exceptions=True
+)
 
 # Layout
 app.layout = dbc.Container(
@@ -190,6 +192,7 @@ def update_run_analysis_title(selected_rows):
         Input("leaderboard-table", "selected_rows"),
         Input("analysis-tabs", "value"),
     ],
+    prevent_initial_call=True,
 )
 def capture_histogram_click_data(click_data, selected_rows, tab):
     ctx = callback_context
@@ -237,31 +240,51 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes):
         if new_true_type in all_types:
             selected_true_type = new_true_type
 
-    # Apply true_type filter if selected
+    # Type Histogram (always show all types, highlight selected)
+    type_counts = (
+        run_data_filtered["true_type"]
+        .value_counts()
+        .reindex(all_types, fill_value=0)
+        .reset_index()
+    )
+    type_counts.columns = ["true_type", "count"]
+    type_fig = px.bar(
+        type_counts, x="true_type", y="count", title="True Type Distribution"
+    )
+    type_fig.update_traces(
+        marker=dict(opacity=0.4),  # Default opacity for unselected
+        selected=dict(marker=dict(opacity=1.0)),  # Full opacity for selected
+        unselected=dict(marker=dict(opacity=0.4)),  # Opacity for unselected
+    )
+    if selected_true_type:
+        selected_index = (
+            all_types.index(selected_true_type)
+            if selected_true_type in all_types
+            else None
+        )
+        type_fig.update_traces(
+            selectedpoints=[selected_index] if selected_index is not None else []
+        )
+    type_fig.update_layout(
+        clickmode="event+select",
+        dragmode=False,
+        xaxis={"fixedrange": True, "tickangle": 45},
+        yaxis={"fixedrange": True},
+        margin={"b": 120},
+    )
+
+    # Apply true_type filter for Confusion Matrix and Datapoint Table
+    cm_table_data = run_data_filtered
     if selected_true_type and selected_true_type in all_types:
-        run_data_filtered = run_data_filtered[
+        cm_table_data = run_data_filtered[
             run_data_filtered["true_type"] == selected_true_type
         ]
 
     if tab == "error-analysis":
-        # Type Histogram
-        type_counts = run_data_filtered["true_type"].value_counts().reset_index()
-        type_counts.columns = ["true_type", "count"]
-        type_fig = px.bar(
-            type_counts, x="true_type", y="count", title="True Type Distribution"
-        )
-        type_fig.update_layout(
-            clickmode="event+select",
-            dragmode=False,
-            xaxis={"fixedrange": True, "tickangle": 45},
-            yaxis={"fixedrange": True},
-            margin={"b": 120},
-        )
-
         # Subtype Confusion Matrix (only show relevant subtypes)
         relevant_subtypes = sorted(
-            set(run_data_filtered["true_sub_type"]).union(
-                set(run_data_filtered["pred_sub_type"])
+            set(cm_table_data["true_sub_type"]).union(
+                set(cm_table_data["pred_sub_type"])
             )
         )
         if not relevant_subtypes:
@@ -272,8 +295,8 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes):
                 else all_subtypes
             )
         cm = pd.crosstab(
-            run_data_filtered["true_sub_type"],
-            run_data_filtered["pred_sub_type"],
+            cm_table_data["true_sub_type"],
+            cm_table_data["pred_sub_type"],
             rownames=["True Subtype"],
             colnames=["Predicted Subtype"],
         )
@@ -319,7 +342,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes):
         except Exception as e:
             return html.Div(f"Error creating confusion matrix: {str(e)}"), None
 
-        # Datapoint Table (initially all data for the run, filtered by true_type and mistakes if selected)
+        # Datapoint Table (filtered by true_type and mistakes if selected)
         datapoint_columns = [
             {"name": "Text", "id": "text"},
             {"name": "True Type", "id": "true_type"},
@@ -367,7 +390,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes):
                             dash_table.DataTable(
                                 id="datapoint-table",
                                 columns=datapoint_columns,
-                                data=run_data_filtered.to_dict("records"),
+                                data=cm_table_data.to_dict("records"),
                                 style_table={"overflowX": "auto"},
                                 style_cell={
                                     "textAlign": "left",
