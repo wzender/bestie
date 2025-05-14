@@ -1182,5 +1182,4 @@ def update_unk_subtype_datapoint_table(click_data, highlighted_run_id):
 
 
 if __name__ == "__main__":
-    onrender_port = 10000
-    app.run(debug=False, port=onrender_port, host="0.0.0.0")
+    app.run(debug=True)

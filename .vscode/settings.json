@@ -15,5 +15,8 @@
     // Additional quality-of-life
     "files.trimTrailingWhitespace": true,
     "files.insertFinalNewline": true,
-    "python.analysis.autoImportCompletions": true
+    "python.analysis.autoImportCompletions": true,
+    "cSpell.words": [
+        "onrender"
+    ]
 }

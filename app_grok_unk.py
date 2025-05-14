@@ -433,19 +433,12 @@ def render_tab_content(
     )
     type_counts.columns = ["true_type", "count"]
     type_fig = px.bar(
-        type_counts,
-        x="true_type",
-        y="count",
-        title="True Type Distribution",
-        text="count",
+        type_counts, x="true_type", y="count", title="True Type Distribution"
     )
     type_fig.update_traces(
         marker=dict(opacity=0.4),
         selected=dict(marker=dict(opacity=1.0)),
         unselected=dict(marker=dict(opacity=0.4)),
-        textposition="outside",
-        textfont=dict(size=10),
-        texttemplate="%{text}",
     )
     if selected_true_type:
         selected_index = (
@@ -461,7 +454,7 @@ def render_tab_content(
         dragmode=False,
         xaxis={"fixedrange": True, "tickangle": 45},
         yaxis={"fixedrange": True},
-        margin={"b": 120, "t": 60},
+        margin={"b": 120},
     )
 
     # Apply true_type filter for Confusion Matrix and Datapoint Table
@@ -926,22 +919,18 @@ def render_tab_content(
             x="pred_unk_subtype",
             y="count",
             title="Predicted Unknown Subtype Distribution",
-            text="count",
         )
         pred_fig.update_traces(
             marker=dict(opacity=0.4),
             selected=dict(marker=dict(opacity=1.0)),
             unselected=dict(marker=dict(opacity=0.4)),
-            textposition="outside",
-            textfont=dict(size=10),
-            texttemplate="%{text}",
         )
         pred_fig.update_layout(
             clickmode="event+select",
             dragmode=False,
             xaxis={"fixedrange": True, "tickangle": 45},
             yaxis={"fixedrange": True},
-            margin={"b": 120, "t": 60},
+            margin={"b": 120},
         )
 
         content = [
@@ -1182,5 +1171,4 @@ def update_unk_subtype_datapoint_table(click_data, highlighted_run_id):
 
 
 if __name__ == "__main__":
-    onrender_port = 10000
-    app.run(debug=False, port=onrender_port, host="0.0.0.0")
+    app.run(debug=False)
