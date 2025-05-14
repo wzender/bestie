@@ -149,7 +149,7 @@ app.layout = dbc.Container(
                             id="leaderboard-table",
                             columns=[
                                 {"name": "Run ID", "id": "run_id"},
-                                {"name": "Sweep ID", "id": "sweep_id"},
+                                {"name": "Sweep ID", "id": "remove this"},
                                 {"name": "Model Parameters", "id": "model_params"},
                                 {
                                     "name": "Accuracy",
@@ -432,39 +432,62 @@ def render_tab_content(
         .reset_index()
     )
     type_counts.columns = ["true_type", "count"]
-    type_fig = px.bar(
-        type_counts, x="true_type", y="count", title="True Type Distribution"
-    )
-    type_fig.update_traces(
-        marker=dict(opacity=0.4),
-        selected=dict(marker=dict(opacity=1.0)),
-        unselected=dict(marker=dict(opacity=0.4)),
-    )
-    if selected_true_type:
-        selected_index = (
-            all_types.index(selected_true_type)
-            if selected_true_type in all_types
-            else None
-        )
-        type_fig.update_traces(
-            selectedpoints=[selected_index] if selected_index is not None else []
-        )
-    type_fig.update_layout(
-        clickmode="event+select",
-        dragmode=False,
-        xaxis={"fixedrange": True, "tickangle": 45},
-        yaxis={"fixedrange": True},
-        margin={"b": 120},
-    )
-
-    # Apply true_type filter for Confusion Matrix and Datapoint Table
-    cm_table_data = run_data_filtered
-    if selected_true_type and selected_true_type in all_types:
-        cm_table_data = run_data_filtered[
-            run_data_filtered["true_type"] == selected_true_type
-        ]
 
     if tab == "subtype-confusion-type":
+        # Check for empty Type Histogram
+        if run_data_filtered["true_type"].value_counts().sum() == 0:
+            content = [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.H4("Type Histogram", className="mb-1"),
+                                dbc.Alert(
+                                    "No True Type data available for this run",
+                                    color="info",
+                                    className="text-center",
+                                ),
+                            ],
+                            width=12,
+                        )
+                    ]
+                )
+            ]
+            return content, None
+
+        # Type Histogram
+        type_fig = px.bar(
+            type_counts,
+            x="true_type",
+            y="count",
+            title="True Type Distribution",
+            text="count",
+        )
+        type_fig.update_traces(
+            marker=dict(opacity=0.4),
+            selected=dict(marker=dict(opacity=1.0)),
+            unselected=dict(marker=dict(opacity=0.4)),
+            textposition="outside",
+            textfont=dict(size=10),
+            texttemplate="%{text}",
+        )
+        if selected_true_type:
+            selected_index = (
+                all_types.index(selected_true_type)
+                if selected_true_type in all_types
+                else None
+            )
+            type_fig.update_traces(
+                selectedpoints=[selected_index] if selected_index is not None else []
+            )
+        type_fig.update_layout(
+            clickmode="event+select",
+            dragmode=False,
+            xaxis={"fixedrange": True, "tickangle": 45},
+            yaxis={"fixedrange": True},
+            margin={"b": 120, "t": 60},
+        )
+
         # Initialize content components
         type_histogram_content = [
             dbc.Row(
@@ -515,6 +538,13 @@ def render_tab_content(
                 )
             ]
             return content, None
+
+        # Apply true_type filter for Confusion Matrix and Datapoint Table
+        cm_table_data = run_data_filtered
+        if selected_true_type and selected_true_type in all_types:
+            cm_table_data = run_data_filtered[
+                run_data_filtered["true_type"] == selected_true_type
+            ]
 
         # Subtype Confusion Matrix
         cm = pd.crosstab(
@@ -914,23 +944,71 @@ def render_tab_content(
             run_data_filtered["pred_unk_subtype"].value_counts().reset_index()
         )
         pred_subtype_counts.columns = ["pred_unk_subtype", "count"]
+
+        # Check for empty histogram
+        if pred_subtype_counts.empty:
+            content = [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.H4(
+                                    "Predicted Unknown Subtype Histogram",
+                                    className="mb-1",
+                                ),
+                                dbc.Alert(
+                                    "No Predicted Unknown Subtype data available for this run",
+                                    color="info",
+                                    className="text-center",
+                                ),
+                            ],
+                            width=12,
+                        )
+                    ]
+                ),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.H4("Datapoint Table", className="mb-1"),
+                                html.Div(
+                                    id="unk-subtype-datapoint-table-container",
+                                    children=dbc.Alert(
+                                        "Click a bar in the Predicted Unknown Subtype Histogram to filter records",
+                                        color="info",
+                                        className="text-center",
+                                    ),
+                                ),
+                            ],
+                            width=12,
+                        )
+                    ]
+                ),
+            ]
+            return content, None
+
+        # Render histogram
         pred_fig = px.bar(
             pred_subtype_counts,
             x="pred_unk_subtype",
             y="count",
             title="Predicted Unknown Subtype Distribution",
+            text="count",
         )
         pred_fig.update_traces(
             marker=dict(opacity=0.4),
             selected=dict(marker=dict(opacity=1.0)),
             unselected=dict(marker=dict(opacity=0.4)),
+            textposition="outside",
+            textfont=dict(size=10),
+            texttemplate="%{text}",
         )
         pred_fig.update_layout(
             clickmode="event+select",
             dragmode=False,
             xaxis={"fixedrange": True, "tickangle": 45},
             yaxis={"fixedrange": True},
-            margin={"b": 120},
+            margin={"b": 120, "t": 60},
         )
 
         content = [
@@ -1170,5 +1248,10 @@ def update_unk_subtype_datapoint_table(click_data, highlighted_run_id):
     )
 
 
+# if __name__ == "__main__":
+#     app.run(debug=True)
+
+
 if __name__ == "__main__":
-    app.run(debug=False)
+    onrender_port = 10000
+    app.run(debug=False, port=onrender_port, host="0.0.0.0")
