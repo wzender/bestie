@@ -211,20 +211,12 @@ app.layout = dbc.Container(
                         ),
                         dcc.Tabs(
                             id="analysis-tabs",
-                            value="raw-results",
+                            value="error-analysis",
                             children=[
-                                dcc.Tab(label="Raw results", value="raw-results"),
+                                dcc.Tab(label="Error Analysis", value="error-analysis"),
+                                dcc.Tab(label="Full Run Table", value="full-run"),
                                 dcc.Tab(
-                                    label="Subtype confusion by type",
-                                    value="subtype-confusion-type",
-                                ),
-                                dcc.Tab(
-                                    label="Subtype confusion by accuracy",
-                                    value="subtype-confusion-accuracy",
-                                ),
-                                dcc.Tab(
-                                    label="Unknown Subtype Histogram",
-                                    value="unknown-subtype-histogram",
+                                    label="Subtype Analysis", value="subtype-analysis"
                                 ),
                             ],
                             className="mb-2",
@@ -252,7 +244,7 @@ app.layout = dbc.Container(
 )
 def toggle_switch_visibility(tab):
     base_style = {"fontSize": "0.9rem", "display": "inline-block"}
-    if tab == "subtype-confusion-type":
+    if tab == "error-analysis":
         return base_style
     return {**base_style, "display": "none"}
 
@@ -281,7 +273,7 @@ def update_run_analysis_title(selected_rows):
 )
 def capture_histogram_click_data(click_data, selected_rows, tab):
     ctx = callback_context
-    if not ctx.triggered or not selected_rows or tab != "subtype-confusion-type":
+    if not ctx.triggered or not selected_rows or tab != "error-analysis":
         return None
 
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
@@ -320,8 +312,8 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
     selected_run_id = run_data.iloc[sorted(selected_rows)[0]]["run_id"]
     run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
 
-    # Apply mistakes filter only for subtype-confusion-type
-    if tab == "subtype-confusion-type" and show_mistakes and show_mistakes == [1]:
+    # Apply mistakes filter only for error-analysis
+    if tab == "error-analysis" and show_mistakes and show_mistakes == [1]:
         run_data_filtered = run_data_filtered[run_data_filtered["correct"] == False]
 
     # Handle histogram click to update selected_true_type, reset on run change
@@ -337,7 +329,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
         if new_true_type in all_types:
             selected_true_type = new_true_type
 
-    # Type Histogram (for subtype-confusion-type)
+    # Type Histogram (always show all types, highlight selected)
     type_counts = (
         run_data_filtered["true_type"]
         .value_counts()
@@ -377,7 +369,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
             run_data_filtered["true_type"] == selected_true_type
         ]
 
-    if tab == "subtype-confusion-type":
+    if tab == "error-analysis":
         # Initialize content components
         type_histogram_content = [
             dbc.Row(
@@ -548,7 +540,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
         ]
         return content, selected_true_type
 
-    elif tab == "raw-results":
+    elif tab == "full-run":
         return (
             dash_table.DataTable(
                 columns=[
@@ -574,7 +566,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
             None,
         )
 
-    elif tab == "subtype-confusion-accuracy":
+    elif tab == "subtype-analysis":
         # Calculate accuracy for each subtype
         subtype_stats = run_data_filtered.groupby("true_sub_type").agg(
             correct_count=("correct", "sum"), total_count=("true_sub_type", "count")
@@ -818,50 +810,8 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
         ]
         return content, None
 
-    elif tab == "unknown-subtype-histogram":
-        # Predicted Subtype Histogram
-        pred_subtype_counts = (
-            run_data_filtered["pred_sub_type"]
-            .value_counts()
-            .reindex(all_subtypes, fill_value=0)
-            .reset_index()
-        )
-        pred_subtype_counts.columns = ["pred_sub_type", "count"]
-        pred_fig = px.bar(
-            pred_subtype_counts,
-            x="pred_sub_type",
-            y="count",
-            title="Predicted Subtype Distribution",
-        )
-        pred_fig.update_traces(marker=dict(opacity=0.4))
-        pred_fig.update_layout(
-            dragmode=False,
-            xaxis={"fixedrange": True, "tickangle": 45},
-            yaxis={"fixedrange": True},
-            margin={"b": 120},
-        )
 
-        content = [
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            html.H4("Predicted Subtype Histogram", className="mb-1"),
-                            dcc.Graph(
-                                id="pred-subtype-histogram",
-                                figure=pred_fig,
-                                config={"displayModeBar": False, "scrollZoom": False},
-                            ),
-                        ],
-                        width=12,
-                    )
-                ]
-            )
-        ]
-        return content, None
-
-
-# Callback to update datapoint table based on confusion matrix clicks (Subtype confusion by type)
+# Callback to update datapoint table based on confusion matrix clicks (Error Analysis)
 @app.callback(
     Output("datapoint-table", "data"),
     [
@@ -906,7 +856,7 @@ def update_datapoint_table(
     return run_data_filtered.to_dict("records")
 
 
-# Callback to update subtype datapoint table based on confusion matrix clicks (Subtype confusion by accuracy)
+# Callback to update subtype datapoint table based on confusion matrix clicks (Subtype Analysis)
 @app.callback(
     Output("subtype-datapoint-table-container", "children"),
     [
@@ -995,5 +945,4 @@ def update_subtype_datapoint_table(confusion_click_data, selected_rows, top_n):
 
 
 if __name__ == "__main__":
-    render_com_port = 10000
-    app.run(host="0.0.0.0", debug=False, port=render_com_port)
+    app.run(debug=True)

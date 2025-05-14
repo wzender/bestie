@@ -22,70 +22,19 @@ run_data = pd.DataFrame(
     }
 )
 
-# Test run data
-test_run_data = pd.DataFrame(
-    {
-        "Text": [f"Text{i+1}" for i in range(20)],
-        "true_type": ["Perfect"] * 5 + ["WorstMin"] * 5 + ["Medium"] * 10,
-        "true_sub_type": ["Perfect1"] * 5
-        + ["WorstMin1"] * 3
-        + ["WorstMin2"] * 2
-        + ["Medium1"] * 5
-        + ["Medium2"] * 5,
-        "pred_sub_type": ["Perfect1"] * 5
-        + ["Else"] * 3
-        + ["Else", "WorstMin2"]
-        + ["Medium1"] * 4
-        + ["Medium2"]
-        + ["Medium2"] * 3
-        + ["Medium1"] * 2,
-        "correct": [True] * 5
-        + [False] * 3
-        + [False, True]
-        + [True] * 4
-        + [False]
-        + [True] * 3
-        + [False] * 2,
-    }
-)
-test_run_id = "test_run"
-test_run_data["run_id"] = test_run_id
-
-# Add test run to run_data
-test_run_summary = pd.DataFrame(
-    {
-        "run_id": [test_run_id],
-        "sweep_id": ["test_sweep"],
-        "model_params": ["test_params"],
-        "accuracy": [test_run_data["correct"].mean()],  # 13/20 = 0.65
-        "f1_score": [0.65],  # Placeholder, matching accuracy
-    }
-)
-run_data = pd.concat([run_data, test_run_summary], ignore_index=True)
-
 # Define types and subtypes
-all_types = [chr(65 + i) for i in range(20)] + [
-    "Perfect",
-    "WorstMin",
-    "Medium",
-]  # A-T + new types
-all_subtypes = [f"{t}{i}" for t in all_types[:20] for i in [1, 2]] + [
-    "Perfect1",
-    "WorstMin1",
-    "WorstMin2",
-    "Medium1",
-    "Medium2",
-]
+all_types = [chr(65 + i) for i in range(20)]  # ["A", "B", "C", ..., "T"]
+all_subtypes = [
+    f"{t}{i}" for t in all_types for i in [1, 2]
+]  # ["A1", "A2", "B1", "B2", ..., "T1", "T2"]
 
 # Generate detailed data with type-subtype relationship
 n_detailed = 2000
 detailed_data = pd.DataFrame(
     {
-        "run_id": [
-            run_data["run_id"][i % (len(run_data) - 1)] for i in range(n_detailed)
-        ],
+        "run_id": [run_data["run_id"][i % len(run_data)] for i in range(n_detailed)],
         "text": [f"Sample text {i}" for i in range(n_detailed)],
-        "true_type": np.random.choice(all_types[:-3], n_detailed),
+        "true_type": np.random.choice(all_types, n_detailed),
     }
 )
 detailed_data["true_sub_type"] = detailed_data["true_type"].apply(
@@ -98,19 +47,9 @@ detailed_data["correct"] = (
     detailed_data["true_sub_type"] == detailed_data["pred_sub_type"]
 )
 
-# Append test_run_data to detailed_data
-detailed_data = pd.concat([detailed_data, test_run_data], ignore_index=True)
-
 # Initialize Dash app with Bootstrap Lux theme and suppress callback exceptions
 app = dash.Dash(
     __name__, external_stylesheets=[dbc.themes.LUX], suppress_callback_exceptions=True
-)
-
-# Add custom CSS for modern slider
-app.css.append_css(
-    {
-        "external_url": "https://codepen.io/chriddyp/pen/bWLwgP.css"  # Dash CSS for sliders
-    }
 )
 
 # Layout
@@ -211,20 +150,12 @@ app.layout = dbc.Container(
                         ),
                         dcc.Tabs(
                             id="analysis-tabs",
-                            value="raw-results",
+                            value="error-analysis",
                             children=[
-                                dcc.Tab(label="Raw results", value="raw-results"),
+                                dcc.Tab(label="Error Analysis", value="error-analysis"),
+                                dcc.Tab(label="Full Run Table", value="full-run"),
                                 dcc.Tab(
-                                    label="Subtype confusion by type",
-                                    value="subtype-confusion-type",
-                                ),
-                                dcc.Tab(
-                                    label="Subtype confusion by accuracy",
-                                    value="subtype-confusion-accuracy",
-                                ),
-                                dcc.Tab(
-                                    label="Unknown Subtype Histogram",
-                                    value="unknown-subtype-histogram",
+                                    label="Subtype Analysis", value="subtype-analysis"
                                 ),
                             ],
                             className="mb-2",
@@ -239,8 +170,6 @@ app.layout = dbc.Container(
         dcc.Store(id="selected-true-type", data=None),
         # Store for histogram click data
         dcc.Store(id="histogram-click-data", data=None),
-        # Store for top N slider value
-        dcc.Store(id="top-n-store", data=5),
     ],
     fluid=True,
 )
@@ -252,7 +181,7 @@ app.layout = dbc.Container(
 )
 def toggle_switch_visibility(tab):
     base_style = {"fontSize": "0.9rem", "display": "inline-block"}
-    if tab == "subtype-confusion-type":
+    if tab in ["error-analysis", "subtype-analysis"]:
         return base_style
     return {**base_style, "display": "none"}
 
@@ -281,7 +210,7 @@ def update_run_analysis_title(selected_rows):
 )
 def capture_histogram_click_data(click_data, selected_rows, tab):
     ctx = callback_context
-    if not ctx.triggered or not selected_rows or tab != "subtype-confusion-type":
+    if not ctx.triggered or not selected_rows or tab != "error-analysis":
         return None
 
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
@@ -289,16 +218,6 @@ def capture_histogram_click_data(click_data, selected_rows, tab):
         return click_data
 
     return None
-
-
-# Callback to update top-n-store
-@app.callback(
-    Output("top-n-store", "data"),
-    [Input("top-n-slider", "value")],
-    prevent_initial_call=True,
-)
-def update_top_n_store(top_n):
-    return top_n
 
 
 # Callback to render tab content
@@ -309,19 +228,18 @@ def update_top_n_store(top_n):
         Input("leaderboard-table", "selected_rows"),
         Input("histogram-click-data", "data"),
         Input("show-mistakes-switch", "value"),
-        Input("top-n-store", "data"),
     ],
     prevent_initial_call=True,
 )
-def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, top_n):
+def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes):
     if not selected_rows:
         return html.Div("Select a run from the leaderboard"), None
 
     selected_run_id = run_data.iloc[sorted(selected_rows)[0]]["run_id"]
     run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
 
-    # Apply mistakes filter only for subtype-confusion-type
-    if tab == "subtype-confusion-type" and show_mistakes and show_mistakes == [1]:
+    # Apply mistakes filter if switch is on
+    if show_mistakes and show_mistakes == [1]:
         run_data_filtered = run_data_filtered[run_data_filtered["correct"] == False]
 
     # Handle histogram click to update selected_true_type, reset on run change
@@ -337,7 +255,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
         if new_true_type in all_types:
             selected_true_type = new_true_type
 
-    # Type Histogram (for subtype-confusion-type)
+    # Type Histogram (always show all types, highlight selected)
     type_counts = (
         run_data_filtered["true_type"]
         .value_counts()
@@ -377,7 +295,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
             run_data_filtered["true_type"] == selected_true_type
         ]
 
-    if tab == "subtype-confusion-type":
+    if tab == "error-analysis":
         # Initialize content components
         type_histogram_content = [
             dbc.Row(
@@ -421,8 +339,36 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
                                     className="text-center",
                                 ),
                             ],
-                            width=12,
-                        )
+                            md=6,
+                            className="pe-0",
+                        ),
+                        dbc.Col(
+                            [
+                                html.H4("Datapoint Table", className="mb-1"),
+                                dash_table.DataTable(
+                                    id="datapoint-table",
+                                    columns=datapoint_columns,
+                                    data=[],
+                                    style_table={"overflowX": "auto"},
+                                    style_cell={
+                                        "textAlign": "left",
+                                        "padding": "3px",
+                                        "fontSize": "12px",
+                                    },
+                                    style_header={
+                                        "backgroundColor": "rgb(230, 230, 230)",
+                                        "fontWeight": "bold",
+                                        "fontSize": "12px",
+                                    },
+                                    style_filter={"fontSize": "11px"},
+                                    page_size=10,
+                                    filter_action="native",
+                                    sort_action="native",
+                                ),
+                            ],
+                            md=6,
+                            className="ps-1",
+                        ),
                     ]
                 )
             ]
@@ -444,8 +390,36 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
                                 html.H4("Subtype Confusion Matrix", className="mb-1"),
                                 html.Div("No predictions for selected type's subtypes"),
                             ],
-                            width=12,
-                        )
+                            md=6,
+                            className="pe-0",
+                        ),
+                        dbc.Col(
+                            [
+                                html.H4("Datapoint Table", className="mb-1"),
+                                dash_table.DataTable(
+                                    id="datapoint-table",
+                                    columns=datapoint_columns,
+                                    data=[],
+                                    style_table={"overflowX": "auto"},
+                                    style_cell={
+                                        "textAlign": "left",
+                                        "padding": "3px",
+                                        "fontSize": "12px",
+                                    },
+                                    style_header={
+                                        "backgroundColor": "rgb(230, 230, 230)",
+                                        "fontWeight": "bold",
+                                        "fontSize": "12px",
+                                    },
+                                    style_filter={"fontSize": "11px"},
+                                    page_size=10,
+                                    filter_action="native",
+                                    sort_action="native",
+                                ),
+                            ],
+                            md=6,
+                            className="ps-1",
+                        ),
                     ]
                 )
             ]
@@ -492,8 +466,36 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
                                 html.H4("Subtype Confusion Matrix", className="mb-1"),
                                 html.Div(f"Error creating confusion matrix: {str(e)}"),
                             ],
-                            width=12,
-                        )
+                            md=6,
+                            className="pe-0",
+                        ),
+                        dbc.Col(
+                            [
+                                html.H4("Datapoint Table", className="mb-1"),
+                                dash_table.DataTable(
+                                    id="datapoint-table",
+                                    columns=datapoint_columns,
+                                    data=[],
+                                    style_table={"overflowX": "auto"},
+                                    style_cell={
+                                        "textAlign": "left",
+                                        "padding": "3px",
+                                        "fontSize": "12px",
+                                    },
+                                    style_header={
+                                        "backgroundColor": "rgb(230, 230, 230)",
+                                        "fontWeight": "bold",
+                                        "fontSize": "12px",
+                                    },
+                                    style_filter={"fontSize": "11px"},
+                                    page_size=10,
+                                    filter_action="native",
+                                    sort_action="native",
+                                ),
+                            ],
+                            md=6,
+                            className="ps-1",
+                        ),
                     ]
                 )
             ]
@@ -511,12 +513,9 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
                                 config={"displayModeBar": False, "scrollZoom": False},
                             ),
                         ],
-                        width=12,
-                    )
-                ]
-            ),
-            dbc.Row(
-                [
+                        md=6,
+                        className="pe-0",
+                    ),
                     dbc.Col(
                         [
                             html.H4("Datapoint Table", className="mb-1"),
@@ -541,14 +540,15 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
                                 sort_action="native",
                             ),
                         ],
-                        width=12,
-                    )
+                        md=6,
+                        className="ps-1",
+                    ),
                 ]
-            ),
+            )
         ]
         return content, selected_true_type
 
-    elif tab == "raw-results":
+    elif tab == "full-run":
         return (
             dash_table.DataTable(
                 columns=[
@@ -574,7 +574,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
             None,
         )
 
-    elif tab == "subtype-confusion-accuracy":
+    elif tab == "subtype-analysis":
         # Calculate accuracy for each subtype
         subtype_stats = run_data_filtered.groupby("true_sub_type").agg(
             correct_count=("correct", "sum"), total_count=("true_sub_type", "count")
@@ -583,51 +583,15 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
             subtype_stats["correct_count"] / subtype_stats["total_count"] * 100
         )
 
-        # Get top N worst subtypes (lowest accuracy)
-        top_n_worst_subtypes = subtype_stats.nsmallest(top_n, "accuracy").index.tolist()
+        # Get top 5 worst subtypes (lowest accuracy)
+        top_5_worst_subtypes = subtype_stats.nsmallest(5, "accuracy").index.tolist()
 
-        if not top_n_worst_subtypes:
-            return [
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                html.H5(
-                                    "Select Number of Worst Subtypes", className="mb-1"
-                                ),
-                                dcc.Slider(
-                                    id="top-n-slider",
-                                    min=1,
-                                    max=10,
-                                    step=1,
-                                    value=top_n,
-                                    marks={i: str(i) for i in [1, 3, 5, 7, 10]},
-                                    className="mb-3",
-                                ),
-                            ],
-                            width=12,
-                        )
-                    ]
-                ),
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                html.H4(
-                                    f"Top {top_n} Worst Subtypes Confusion Matrix",
-                                    className="mb-1",
-                                ),
-                                html.Div("No subtype data available for analysis"),
-                            ],
-                            width=12,
-                        )
-                    ]
-                ),
-            ], None
+        if not top_5_worst_subtypes:
+            return html.Div("No subtype data available for analysis"), None
 
         # Filter data for worst subtypes
         filtered_df = run_data_filtered[
-            run_data_filtered["true_sub_type"].isin(top_n_worst_subtypes)
+            run_data_filtered["true_sub_type"].isin(top_5_worst_subtypes)
         ]
 
         # Create confusion matrix
@@ -638,43 +602,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
             colnames=["Predicted Subtype"],
         )
         if cm.empty:
-            return [
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                html.H5(
-                                    "Select Number of Worst Subtypes", className="mb-1"
-                                ),
-                                dcc.Slider(
-                                    id="top-n-slider",
-                                    min=1,
-                                    max=10,
-                                    step=1,
-                                    value=top_n,
-                                    marks={i: str(i) for i in [1, 3, 5, 7, 10]},
-                                    className="mb-3",
-                                ),
-                            ],
-                            width=12,
-                        )
-                    ]
-                ),
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                html.H4(
-                                    f"Top {top_n} Worst Subtypes Confusion Matrix",
-                                    className="mb-1",
-                                ),
-                                html.Div("No subtype data available for analysis"),
-                            ],
-                            width=12,
-                        )
-                    ]
-                ),
-            ], None
+            return html.Div("No subtype data available for analysis"), None
 
         z = cm.values
         row_sums = cm.sum(axis=1)
@@ -697,7 +625,7 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
                 showscale=False,
             )
             cm_fig.update_layout(
-                title=f"Top {top_n} Worst Subtypes Confusion Matrix",
+                title="Worst Subtypes Confusion Matrix",
                 xaxis_title="Predicted Subtype",
                 yaxis_title="True Subtype",
                 clickmode="event+select",
@@ -710,82 +638,19 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
                 margin=dict(l=100, r=20, t=100, b=50),
             )
         except Exception as e:
-            return [
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                html.H5(
-                                    "Select Number of Worst Subtypes", className="mb-1"
-                                ),
-                                dcc.Slider(
-                                    id="top-n-slider",
-                                    min=1,
-                                    max=10,
-                                    step=1,
-                                    value=top_n,
-                                    marks={i: str(i) for i in [1, 3, 5, 7, 10]},
-                                    className="mb-3",
-                                ),
-                            ],
-                            width=12,
-                        )
-                    ]
-                ),
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                html.H4(
-                                    f"Top {top_n} Worst Subtypes Confusion Matrix",
-                                    className="mb-1",
-                                ),
-                                html.Div(f"Error creating confusion matrix: {str(e)}"),
-                            ],
-                            width=12,
-                        )
-                    ]
-                ),
-            ], None
+            return html.Div(f"Error creating confusion matrix: {str(e)}"), None
 
-        # Datapoint Table setup
-        datapoint_columns = [
-            {"name": "Text", "id": "text"},
-            {"name": "True Type", "id": "true_type"},
-            {"name": "True Subtype", "id": "true_sub_type"},
-            {"name": "Pred Subtype", "id": "pred_sub_type"},
-            {"name": "Correct", "id": "correct"},
-        ]
+        # Create subtype stats table
+        subtype_stats_table = subtype_stats.loc[top_5_worst_subtypes].reset_index()
+        subtype_stats_table["accuracy"] = subtype_stats_table["accuracy"].round(1)
 
         content = [
             dbc.Row(
                 [
                     dbc.Col(
                         [
-                            html.H5(
-                                "Select Number of Worst Subtypes", className="mb-1"
-                            ),
-                            dcc.Slider(
-                                id="top-n-slider",
-                                min=1,
-                                max=10,
-                                step=1,
-                                value=top_n,
-                                marks={i: str(i) for i in [1, 3, 5, 7, 10]},
-                                className="mb-3",
-                            ),
-                        ],
-                        width=12,
-                    )
-                ]
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
                             html.H4(
-                                f"Top {top_n} Worst Subtypes Confusion Matrix",
-                                className="mb-1",
+                                "Worst Subtypes Confusion Matrix", className="mb-1"
                             ),
                             dcc.Graph(
                                 id="worst-subtypes-confusion-matrix",
@@ -793,75 +658,61 @@ def render_tab_content(tab, selected_rows, histogram_click_data, show_mistakes, 
                                 config={"displayModeBar": False, "scrollZoom": False},
                             ),
                         ],
-                        width=12,
-                    )
-                ]
-            ),
-            dbc.Row(
-                [
+                        md=6,
+                        className="pe-0",
+                    ),
                     dbc.Col(
                         [
-                            html.H4("Datapoint Table", className="mb-1"),
-                            html.Div(
-                                id="subtype-datapoint-table-container",
-                                children=dbc.Alert(
-                                    "Please select a subtype from the Subtype Confusion Matrix",
-                                    color="info",
-                                    className="text-center",
-                                ),
+                            html.H4("Subtype Statistics", className="mb-1"),
+                            dash_table.DataTable(
+                                id="subtype-stats-table",
+                                columns=[
+                                    {"name": "True Subtype", "id": "true_sub_type"},
+                                    {
+                                        "name": "Total Instances",
+                                        "id": "total_count",
+                                        "type": "numeric",
+                                    },
+                                    {
+                                        "name": "Correct Classifications",
+                                        "id": "correct_count",
+                                        "type": "numeric",
+                                    },
+                                    {
+                                        "name": "Accuracy (%)",
+                                        "id": "accuracy",
+                                        "type": "numeric",
+                                        "format": {"specifier": ".1f"},
+                                    },
+                                ],
+                                data=subtype_stats_table.to_dict("records"),
+                                style_table={"overflowX": "auto"},
+                                style_cell={
+                                    "textAlign": "left",
+                                    "padding": "3px",
+                                    "fontSize": "12px",
+                                },
+                                style_header={
+                                    "backgroundColor": "rgb(230, 230, 230)",
+                                    "fontWeight": "bold",
+                                    "fontSize": "12px",
+                                },
+                                style_filter={"fontSize": "11px"},
+                                page_size=5,
+                                filter_action="native",
+                                sort_action="native",
                             ),
                         ],
-                        width=12,
-                    )
-                ]
-            ),
-        ]
-        return content, None
-
-    elif tab == "unknown-subtype-histogram":
-        # Predicted Subtype Histogram
-        pred_subtype_counts = (
-            run_data_filtered["pred_sub_type"]
-            .value_counts()
-            .reindex(all_subtypes, fill_value=0)
-            .reset_index()
-        )
-        pred_subtype_counts.columns = ["pred_sub_type", "count"]
-        pred_fig = px.bar(
-            pred_subtype_counts,
-            x="pred_sub_type",
-            y="count",
-            title="Predicted Subtype Distribution",
-        )
-        pred_fig.update_traces(marker=dict(opacity=0.4))
-        pred_fig.update_layout(
-            dragmode=False,
-            xaxis={"fixedrange": True, "tickangle": 45},
-            yaxis={"fixedrange": True},
-            margin={"b": 120},
-        )
-
-        content = [
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            html.H4("Predicted Subtype Histogram", className="mb-1"),
-                            dcc.Graph(
-                                id="pred-subtype-histogram",
-                                figure=pred_fig,
-                                config={"displayModeBar": False, "scrollZoom": False},
-                            ),
-                        ],
-                        width=12,
-                    )
+                        md=6,
+                        className="ps-1",
+                    ),
                 ]
             )
         ]
         return content, None
 
 
-# Callback to update datapoint table based on confusion matrix clicks (Subtype confusion by type)
+# Callback to update datapoint table based on confusion matrix clicks
 @app.callback(
     Output("datapoint-table", "data"),
     [
@@ -906,94 +757,5 @@ def update_datapoint_table(
     return run_data_filtered.to_dict("records")
 
 
-# Callback to update subtype datapoint table based on confusion matrix clicks (Subtype confusion by accuracy)
-@app.callback(
-    Output("subtype-datapoint-table-container", "children"),
-    [
-        Input("worst-subtypes-confusion-matrix", "clickData"),
-        Input("leaderboard-table", "selected_rows"),
-        Input("top-n-store", "data"),
-    ],
-    prevent_initial_call=True,
-)
-def update_subtype_datapoint_table(confusion_click_data, selected_rows, top_n):
-    if not selected_rows:
-        return dbc.Alert(
-            "Please select a run from the leaderboard",
-            color="info",
-            className="text-center",
-        )
-
-    selected_run_id = run_data.iloc[sorted(selected_rows)[0]]["run_id"]
-    run_data_filtered = detailed_data[detailed_data["run_id"] == selected_run_id]
-
-    # Get top N worst subtypes for context
-    subtype_stats = run_data_filtered.groupby("true_sub_type").agg(
-        correct_count=("correct", "sum"), total_count=("true_sub_type", "count")
-    )
-    subtype_stats["accuracy"] = (
-        subtype_stats["correct_count"] / subtype_stats["total_count"] * 100
-    )
-    top_n_worst_subtypes = subtype_stats.nsmallest(top_n, "accuracy").index.tolist()
-
-    if not top_n_worst_subtypes:
-        return dbc.Alert(
-            "No subtype data available for analysis",
-            color="info",
-            className="text-center",
-        )
-
-    run_data_filtered = run_data_filtered[
-        run_data_filtered["true_sub_type"].isin(top_n_worst_subtypes)
-    ]
-
-    if not confusion_click_data or "points" not in confusion_click_data:
-        return dbc.Alert(
-            "Please select a subtype from the Subtype Confusion Matrix",
-            color="info",
-            className="text-center",
-        )
-
-    point = confusion_click_data["points"][0]
-    true_subtype = point["y"]
-    pred_subtype = point["x"]
-
-    filtered = run_data_filtered[
-        (run_data_filtered["true_sub_type"] == true_subtype)
-        & (run_data_filtered["pred_sub_type"] == pred_subtype)
-    ]
-
-    if filtered.empty:
-        return dbc.Alert(
-            "No records found for the selected subtype combination",
-            color="info",
-            className="text-center",
-        )
-
-    return dash_table.DataTable(
-        id="subtype-datapoint-table",
-        columns=[
-            {"name": "Text", "id": "text"},
-            {"name": "True Type", "id": "true_type"},
-            {"name": "True Subtype", "id": "true_sub_type"},
-            {"name": "Pred Subtype", "id": "pred_sub_type"},
-            {"name": "Correct", "id": "correct"},
-        ],
-        data=filtered.to_dict("records"),
-        style_table={"overflowX": "auto"},
-        style_cell={"textAlign": "left", "padding": "3px", "fontSize": "12px"},
-        style_header={
-            "backgroundColor": "rgb(230, 230, 230)",
-            "fontWeight": "bold",
-            "fontSize": "12px",
-        },
-        style_filter={"fontSize": "11px"},
-        page_size=10,
-        filter_action="native",
-        sort_action="native",
-    )
-
-
 if __name__ == "__main__":
-    render_com_port = 10000
-    app.run(host="0.0.0.0", debug=False, port=render_com_port)
+    app.run(debug=True)
