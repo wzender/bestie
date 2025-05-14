@@ -744,4 +744,4 @@ def update_datapoint_table(
 
 if __name__ == "__main__":
     render_com_port = 10000
-    app.run(host="0.0.0.0", debug=True, port=render_com_port)
+    app.run(host="0.0.0.0", debug=False, port=render_com_port)
