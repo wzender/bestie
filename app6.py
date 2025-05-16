@@ -3,7 +3,8 @@ from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import plotly.express as px
-import plotly.figure_factory as ff
+import plotly.graph_objects as go
+import plotly.colors
 import pandas as pd
 import numpy as np
 from uuid import uuid4
@@ -21,6 +22,18 @@ for t in all_types:
 
 # Define unknown subtypes
 all_unk_subtypes = [f"UNK{i}" for i in range(1, 11)] + [None]
+
+
+# Function to compute luminance and choose font color
+def get_font_color(rgb):
+    # Convert RGB string (e.g., 'rgb(0, 86, 214)') to tuple (R, G, B)
+    rgb_values = [int(x) for x in rgb.strip("rgb()").split(",")]
+    # Normalize to [0,1]
+    r, g, b = [x / 255.0 for x in rgb_values]
+    # Compute luminance
+    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    # Return white for dark backgrounds, black for light
+    return "#FFFFFF" if luminance < 0.5 else "#000000"
 
 
 # Function to generate mock data
@@ -692,34 +705,131 @@ def render_subtype_confusion_content(highlighted_run_id, selected_true_type):
                     )
                 ]
             else:
-                # Create confusion matrix using ff.create_annotated_heatmap
+                # Create confusion matrix using go.Heatmap
                 try:
-                    cm_fig = ff.create_annotated_heatmap(
-                        z=cm.values,
-                        x=cm.columns.tolist(),
-                        y=cm.index.tolist(),
-                        annotation_text=cm.values,
-                        colorscale="Blues",
-                        showscale=False,
-                        font_colors=["black"],
+                    # Normalize z values to [0,1]
+                    z = cm.values
+                    z_min, z_max = z.min(), z.max()
+                    if z_max == z_min:
+                        z_normalized = np.zeros_like(z, dtype=float)
+                    else:
+                        z_normalized = (z - z_min) / (z_max - z_min)
+
+                    # Define Blues colorscale
+                    blues_colors = plotly.colors.sequential.Blues
+                    n_colors = len(blues_colors)
+                    blues_scale = [
+                        [i / (n_colors - 1), color]
+                        for i, color in enumerate(blues_colors)
+                    ]
+
+                    # Compute cell colors for font color determination
+                    colors = np.empty_like(z, dtype=object)
+                    for i in range(z.shape[0]):
+                        for j in range(z.shape[1]):
+                            norm_val = z_normalized[i, j]
+                            for k in range(len(blues_scale) - 1):
+                                if norm_val <= blues_scale[k + 1][0]:
+                                    frac = (
+                                        (norm_val - blues_scale[k][0])
+                                        / (blues_scale[k + 1][0] - blues_scale[k][0])
+                                        if blues_scale[k + 1][0] != blues_scale[k][0]
+                                        else 0
+                                    )
+                                    rgb_start = [
+                                        int(x)
+                                        for x in blues_scale[k][1]
+                                        .strip("rgb()")
+                                        .split(",")
+                                    ]
+                                    rgb_end = [
+                                        int(x)
+                                        for x in blues_scale[k + 1][1]
+                                        .strip("rgb()")
+                                        .split(",")
+                                    ]
+                                    rgb = [
+                                        int(
+                                            rgb_start[c]
+                                            + frac * (rgb_end[c] - rgb_start[c])
+                                        )
+                                        for c in range(3)
+                                    ]
+                                    colors[i, j] = f"rgb({rgb[0]},{rgb[1]},{rgb[2]})"
+                                    break
+                            else:
+                                colors[i, j] = blues_scale[-1][1]
+
+                    # Compute font colors
+                    font_colors = [
+                        [get_font_color(colors[i, j]) for j in range(z.shape[1])]
+                        for i in range(z.shape[0])
+                    ]
+
+                    # Create heatmap
+                    cm_fig = go.Figure(
+                        data=[
+                            go.Heatmap(
+                                z=z,
+                                x=cm.columns.tolist(),
+                                y=cm.index.tolist(),
+                                colorscale="Blues",
+                                showscale=False,
+                                text=z,
+                                texttemplate="%{text}",
+                                textfont=dict(size=12),
+                                hoverinfo="z+x+y",
+                            )
+                        ]
                     )
+
+                    # Add annotations with dynamic font colors using Scatter
+                    text_trace = go.Scatter(
+                        x=[
+                            cm.columns[j]
+                            for i in range(z.shape[0])
+                            for j in range(z.shape[1])
+                        ],
+                        y=[
+                            cm.index[i]
+                            for i in range(z.shape[0])
+                            for j in range(z.shape[1])
+                        ],
+                        text=[
+                            str(z[i, j])
+                            for i in range(z.shape[0])
+                            for j in range(z.shape[1])
+                        ],
+                        mode="text",
+                        textfont=dict(
+                            size=12,
+                            color=[
+                                font_colors[i][j]
+                                for i in range(z.shape[0])
+                                for j in range(z.shape[1])
+                            ],
+                        ),
+                        showlegend=False,
+                        hoverinfo="none",
+                    )
+                    cm_fig.add_trace(text_trace)
+
                     cm_fig.update_layout(
                         title="Subtype Confusion Matrix",
                         xaxis_title="Predicted Subtype",
                         yaxis_title="True Subtype",
-                        clickmode="event+select",
+                        clickmode="event",
                         dragmode=False,
                         xaxis=dict(
-                            fixedrange=True, tickangle=45, tickfont=dict(size=10)
+                            fixedrange=True, tickangle=45, tickfont=dict(size=12)
                         ),
-                        yaxis=dict(fixedrange=True, tickfont=dict(size=10)),
+                        yaxis=dict(fixedrange=True, tickfont=dict(size=12)),
                         width=1400,
                         height=400,
-                        font=dict(size=10),
+                        font=dict(size=12),
                         margin=dict(l=80, r=20, t=80, b=80),
                     )
-                    for annotation in cm_fig["layout"]["annotations"]:
-                        annotation["font"] = dict(size=10)
+
                     confusion_content = [
                         dbc.Row(
                             [
