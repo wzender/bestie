@@ -10,15 +10,34 @@ from sklearn.metrics import f1_score
 
 F1_CIRCLE_SIZE = 35
 
+# def f1_to_rgb(f1, f1_min=0.0, f1_max=1.0):
+#     # Normalize f1 to [0, 1]
+#     norm = (f1 - f1_min) / (f1_max - f1_min) if f1_max > f1_min else 0
+#     norm = max(0.0, min(1.0, norm))  # Clamp
+
+#     # Red to green gradient
+#     r = int(255 * (1 - norm))      # 255 → 0 as F1 increases
+#     g = int(200 * norm + 55)       # 55 → 255
+#     b = int(150 - 100 * norm)      # 150 → 50
+#     return f"rgb({r},{g},{b})"
+
+# Updated color function for light green to light yellow to light red (traffic light style)
 def f1_to_rgb(f1, f1_min=0.0, f1_max=1.0):
     # Normalize f1 to [0, 1]
     norm = (f1 - f1_min) / (f1_max - f1_min) if f1_max > f1_min else 0
     norm = max(0.0, min(1.0, norm))  # Clamp
 
-    # Red to green gradient
-    r = int(255 * (1 - norm))      # 255 → 0 as F1 increases
-    g = int(200 * norm + 55)       # 55 → 255
-    b = int(150 - 100 * norm)      # 150 → 50
+    # Light green (high F1) to light yellow (mid F1) to light red (low F1)
+    if norm >= 0.5:
+        # Transition from light yellow (norm=0.5) to light green (norm=1.0)
+        r = int(255 - 135 * (norm - 0.5) / 0.5)  # 255 → 120
+        g = int(255)                              # Fixed high green for brightness
+        b = int(120 - 0 * (norm - 0.5) / 0.5)    # Fixed at 120
+    else:
+        # Transition from light red (norm=0.0) to light yellow (norm=0.5)
+        r = int(255)                              # Fixed high red
+        g = int(120 + 135 * norm / 0.5)          # 120 → 255
+        b = int(120)                              # Fixed at 120
     return f"rgb({r},{g},{b})"
 
 
