@@ -3,8 +3,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 import dash_bootstrap_components as dbc
-import dash_html_components as html
-import dash_core_components as dcc
+from dash import html, dcc
 from dash.dash_table import DataTable
 from utils import get_font_color
 from sklearn.metrics import f1_score
@@ -275,7 +274,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 unselected=dict(marker=dict(opacity=0.1)),
             )
         )
-        
+
         max_count = type_counts["count"].max()
         # Add F1 score circles
         f1_y_position = max_count * 1.15 + 5  # Horizontally align circles above bars
