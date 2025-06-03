@@ -22,14 +22,6 @@ def f1_to_rgb(f1, f1_min=0.0, f1_max=1.0):
     return f"rgb({r},{g},{b})"
 
 
-def create_f1_colors(num_subtypes):
-    f1_colors = [
-        f"rgb({int(255 - i * (100/num_subtypes))}, {int(150 + i * (105/num_subtypes))}, {int(150 - i * (100/num_subtypes))})"
-        for i in range(num_subtypes)
-    ]
-    return f1_colors[::-1]  # Reverse the order for better visibility
-
-
 def register_callbacks(app, run_data, detailed_data, test_run_id):
     all_types = [chr(65 + i) for i in range(20)] + ["Perfect", "WorstMin", "Medium"]
 
@@ -282,7 +274,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         num_types = len(sorted_types)
 
         # f1_colors = create_f1_colors(num_types)
-        f1_colors = [f1_to_rgb(f1) for f1 in f1_df["f1_score"]]
+        type_f1_colors = [f1_to_rgb(f1) for f1 in f1_df["f1_score"]]
 
         type_fig.add_trace(
             go.Scatter(
@@ -291,7 +283,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 mode="markers+text",
                 marker=dict(
                     size=F1_CIRCLE_SIZE,
-                    color=f1_colors,
+                    color=type_f1_colors,
                     line=dict(width=1, color="#1F2937"),
                 ),
                 text=[f"{int(f1 * 100)}%" for f1 in f1_df["f1_score"]],
@@ -425,51 +417,49 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                     ),
                     ]
                 else:
-                    # Subtype F1 circles
+                    # Assuming subtype_df, sorted_subtypes, f1_colors, and F1_CIRCLE_SIZE are defined
                     num_subtypes = len(sorted_subtypes)
-                    # f1_colors = create_f1_colors(num_subtypes)
-                    f1_colors = f1_colors = [f1_to_rgb(f1) for f1 in subtype_df["f1_score"]]
+                    gap_size = 0.8  # Adjust this value to control the gap between circles
 
-                    spacing = 2.3  # Adjust this to control vertical gap
+                    subtype_f1_colors = [f1_to_rgb(f1) for f1 in subtype_df["f1_score"]]
 
-                    # Y positions with spacing
-                    y_positions = [i * spacing for i in range(len(subtype_df))]
-
-                    # Assuming subtype_df and cm are already calculated
-                    sorted_subtypes = subtype_df[
-                        "subtype"
-                    ].tolist()  # Sorted by F1 score
-                    num_subtypes = len(sorted_subtypes)
-
-                    # F1 Circles Plot
+                    # Create figure
                     subtype_f1_fig = go.Figure()
-                    subtype_f1_fig.add_trace(
-                        go.Scatter(
-                            x=[-0.5] * num_subtypes,  # Fixed x-position for circles
-                            y=sorted_subtypes,  # Categorical y-positions
-                            mode="markers+text",
-                            marker=dict(
-                                size=F1_CIRCLE_SIZE,
-                                color=f1_colors,
-                                line=dict(width=1, color="#1F2937"),
-                            ),
-                            text=[f"{int(f1 * 100)}%" for f1 in subtype_df["f1_score"]],
-                            textposition="middle center",
-                            textfont=dict(
-                                size=10, family="sans-serif", color="#1F2937"
-                            ),
-                            hovertemplate="Subtype: %{y}<br>F1 Score: %{text}<extra></extra>",
-                            showlegend=False,
+
+                    # Add a scatter trace for each subtype to control individual positioning
+                    for i, (subtype, f1) in enumerate(zip(sorted_subtypes, subtype_df["f1_score"])):
+                        y_position = i * gap_size  # Numerical y-position with gap
+                        subtype_f1_fig.add_trace(
+                            go.Scatter(
+                                x=[-0.5],  # Fixed x-position for each circle
+                                y=[y_position],  # Unique y-position for each circle
+                                mode="markers+text",
+                                marker=dict(
+                                    size=F1_CIRCLE_SIZE,
+                                    color=subtype_f1_colors[i],  # Use corresponding color
+                                    line=dict(width=1, color="#1F2937"),
+                                ),
+                                text=[f"{int(f1 * 100)}%"],  # F1 score as text
+                                textposition="middle center",
+                                textfont=dict(
+                                    size=10, family="sans-serif", color="#1F2937"
+                                ),
+                                hovertemplate=f"Subtype: {subtype}<br>F1 Score: {int(f1 * 100)}%<extra></extra>",
+                                showlegend=False,
+                            )
                         )
-                    )
+
+                    # Update layout to customize y-axis and figure appearance
                     subtype_f1_fig.update_layout(
                         xaxis=dict(visible=False, range=[-1, 0]),
                         yaxis=dict(
-                            visible=False,
-                            categoryorder="array",
-                            categoryarray=sorted_subtypes,  # Match confusion matrix
+                            visible=False,  # Show y-axis for labels
+                            tickvals=[i * gap_size for i in range(num_subtypes)],  # Numerical positions
+                            ticktext=sorted_subtypes,  # Subtype names as labels
+                            range=[-0.5, (num_subtypes - 1) * gap_size + 0.5],  # Adjust range for all circles
+                            showgrid=False,
                         ),
-                        height=40 * num_subtypes + 120,  # Consistent height
+                        height=40 * num_subtypes + 120,  # Adjust height based on number of subtypes
                         margin=dict(l=40, r=0, t=40, b=70),
                         plot_bgcolor="#F8FAFC",
                         paper_bgcolor="#F8FAFC",
