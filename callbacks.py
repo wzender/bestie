@@ -844,3 +844,285 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             ]
             return filtered.to_dict("records"), None
         return run_data_filtered.to_dict("records"), None
+
+    # Comparison callbacks
+    @app.callback(
+        Output("comparison-runs", "data"),
+        [
+            Input("add-to-compare-btn", "n_clicks"),
+            Input("clear-compare-btn", "n_clicks"),
+        ],
+        [
+            State("highlighted-run-id", "data"),
+            State("comparison-runs", "data"),
+        ],
+        prevent_initial_call=True,
+    )
+    def update_comparison_runs(add_clicks, clear_clicks, highlighted_run_id, current_comparison_runs):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+
+        triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        if triggered_id == "clear-compare-btn":
+            return []
+        elif triggered_id == "add-to-compare-btn":
+            if not highlighted_run_id:
+                return current_comparison_runs
+            # Add run if not already in list, limit to 3 runs for comparison
+            if highlighted_run_id not in current_comparison_runs and len(current_comparison_runs) < 3:
+                return current_comparison_runs + [highlighted_run_id]
+            return current_comparison_runs
+
+        return current_comparison_runs
+
+    @app.callback(
+        Output("selected-runs-display", "children"),
+        Input("comparison-runs", "data"),
+    )
+    def display_selected_runs(comparison_runs):
+        if not comparison_runs:
+            return dbc.Alert("No runs selected for comparison", color="info")
+
+        # Get run details
+        comparison_data = run_data[run_data["run_id"].isin(comparison_runs)]
+
+        badges = []
+        for idx, run_id in enumerate(comparison_runs):
+            run_info = comparison_data[comparison_data["run_id"] == run_id]
+            if not run_info.empty:
+                model_name = run_info.iloc[0]["model_name"]
+                accuracy = run_info.iloc[0]["accuracy"]
+                badges.append(
+                    dbc.Badge(
+                        f"{idx+1}. {model_name} (Acc: {accuracy:.3f})",
+                        color="info",
+                        className="me-2 mb-2",
+                        pill=True,
+                    )
+                )
+
+        return dbc.Row([dbc.Col(badges, width=12)])
+
+    @app.callback(
+        Output("comparison-metrics-display", "children"),
+        Input("comparison-runs", "data"),
+    )
+    def display_comparison_metrics(comparison_runs):
+        if len(comparison_runs) < 2:
+            return html.Div()
+
+        comparison_data = run_data[run_data["run_id"].isin(comparison_runs)]
+
+        # Create comparison table
+        metrics_to_compare = ["model_name", "model_params", "accuracy", "f1_score"]
+        comparison_df = comparison_data[["run_id"] + metrics_to_compare].copy()
+        comparison_df.columns = ["Run ID", "Model", "Parameters", "Accuracy", "F1 Score"]
+
+        # Format numeric columns
+        comparison_df["Accuracy"] = comparison_df["Accuracy"].apply(lambda x: f"{x:.3f}")
+        comparison_df["F1 Score"] = comparison_df["F1 Score"].apply(lambda x: f"{x:.3f}")
+
+        table = DataTable(
+            columns=[{"name": col, "id": col} for col in comparison_df.columns],
+            data=comparison_df.to_dict("records"),
+            style_cell={
+                "textAlign": "center",
+                "padding": "12px",
+                "fontSize": "14px",
+                "fontFamily": "sans-serif",
+                "color": "#1F2937",
+            },
+            style_header={
+                "backgroundColor": "#E2E8F0",
+                "fontWeight": "600",
+                "fontSize": "14px",
+                "padding": "12px",
+                "color": "#1F2937",
+                "fontFamily": "sans-serif",
+            },
+            style_data={
+                "borderBottom": "1px solid #E2E8F0",
+            },
+        )
+
+        # Calculate differences if 2 runs
+        if len(comparison_runs) == 2:
+            run1_data = comparison_data.iloc[0]
+            run2_data = comparison_data.iloc[1]
+
+            acc_diff = run2_data["accuracy"] - run1_data["accuracy"]
+            f1_diff = run2_data["f1_score"] - run1_data["f1_score"]
+
+            acc_color = "success" if acc_diff > 0 else "danger" if acc_diff < 0 else "secondary"
+            f1_color = "success" if f1_diff > 0 else "danger" if f1_diff < 0 else "secondary"
+
+            diff_cards = dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    html.H6("Accuracy Difference", className="card-title"),
+                                    html.P(
+                                        f"{acc_diff:+.3f}",
+                                        className=f"text-lg font-bold text-{acc_color}-600",
+                                    ),
+                                ]
+                            ),
+                        ],
+                        width=6,
+                        lg=3,
+                        className="mb-3",
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    html.H6("F1 Score Difference", className="card-title"),
+                                    html.P(
+                                        f"{f1_diff:+.3f}",
+                                        className=f"text-lg font-bold text-{f1_color}-600",
+                                    ),
+                                ]
+                            ),
+                        ],
+                        width=6,
+                        lg=3,
+                        className="mb-3",
+                    ),
+                ],
+                className="mt-3 mb-4",
+            )
+
+            return html.Div([table, diff_cards])
+
+        return table
+
+    @app.callback(
+        Output("comparison-datapoint-display", "children"),
+        Input("comparison-runs", "data"),
+    )
+    def display_comparison_datapoints(comparison_runs):
+        if len(comparison_runs) < 2:
+            return html.Div()
+
+        # Get detailed data for all comparison runs
+        comparison_detailed = detailed_data[detailed_data["run_id"].isin(comparison_runs)]
+
+        if comparison_detailed.empty:
+            return dbc.Alert("No datapoints available for comparison", color="warning")
+
+        # Get sample of datapoints to compare (limit to 20 for performance)
+        # Group by text to ensure we're comparing same samples
+        grouped = comparison_detailed.groupby("text", as_index=False).filter(
+            lambda x: len(x) == len(comparison_runs)
+        )
+
+        if grouped.empty:
+            return dbc.Alert("No common datapoints between selected runs", color="info")
+
+        sample_texts = grouped["text"].unique()[:20]
+        comparison_sample = grouped[grouped["text"].isin(sample_texts)]
+
+        # Build comparison table
+        rows = []
+        for text in sample_texts:
+            text_data = comparison_sample[comparison_sample["text"] == text]
+            if text_data.empty:
+                continue
+
+            row_dict = {"text": text[:50] + "..." if len(text) > 50 else text}
+
+            # Add each run's predictions
+            for idx, run_id in enumerate(comparison_runs):
+                run_text_data = text_data[text_data["run_id"] == run_id]
+                if not run_text_data.empty:
+                    row = run_text_data.iloc[0]
+                    true_subtype = row.get("true_subtype", "N/A")
+                    pred_subtype = row.get("pred_subtype", "N/A")
+                    correct = row.get("correct", False)
+
+                    # Format: True: X → Pred: Y (✓/✗)
+                    status_icon = "✓" if correct else "✗"
+                    row_dict[f"run_{idx+1}_pred"] = f"{pred_subtype} ({status_icon})"
+                    row_dict[f"run_{idx+1}_true"] = true_subtype
+
+            rows.append(row_dict)
+
+        # Create table columns dynamically
+        columns = [{"name": "Text Sample", "id": "text"}]
+        for idx in range(len(comparison_runs)):
+            columns.append({"name": f"Run {idx+1} - True", "id": f"run_{idx+1}_true"})
+            columns.append({"name": f"Run {idx+1} - Prediction", "id": f"run_{idx+1}_pred"})
+
+        # Style cells for correct/incorrect predictions
+        style_data_conditional = []
+        for idx in range(len(comparison_runs)):
+            # Highlight correct predictions in green, incorrect in red
+            for row_idx, row in enumerate(rows):
+                if f"run_{idx+1}_pred" in row:
+                    pred_text = row[f"run_{idx+1}_pred"]
+                    if "✓" in pred_text:
+                        style_data_conditional.append({
+                            "if": {
+                                "column_id": f"run_{idx+1}_pred",
+                                "row_index": row_idx
+                            },
+                            "backgroundColor": "#DCFCE7",
+                            "color": "#166534"
+                        })
+                    else:
+                        style_data_conditional.append({
+                            "if": {
+                                "column_id": f"run_{idx+1}_pred",
+                                "row_index": row_idx
+                            },
+                            "backgroundColor": "#FEE2E2",
+                            "color": "#991B1B"
+                        })
+
+        table = DataTable(
+            columns=columns,
+            data=rows,
+            style_cell={
+                "textAlign": "left",
+                "padding": "10px",
+                "fontSize": "12px",
+                "fontFamily": "monospace",
+                "color": "#1F2937",
+                "whiteSpace": "normal",
+                "maxWidth": "200px",
+            },
+            style_header={
+                "backgroundColor": "#E2E8F0",
+                "fontWeight": "600",
+                "fontSize": "12px",
+                "padding": "10px",
+                "color": "#1F2937",
+                "fontFamily": "sans-serif",
+                "textAlign": "center",
+            },
+            style_data={
+                "borderBottom": "1px solid #E2E8F0",
+            },
+            style_data_conditional=style_data_conditional,
+            page_size=10,
+        )
+
+        return dbc.Card(
+            [
+                dbc.CardBody(
+                    [
+                        html.P(
+                            f"Showing {len(rows)} datapoints classified by all {len(comparison_runs)} runs",
+                            className="text-sm text-gray-600 mb-3"
+                        ),
+                        table,
+                    ]
+                )
+            ]
+        )
+
+

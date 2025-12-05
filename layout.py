@@ -15,6 +15,9 @@ def create_layout(benchmark_options, run_data):
         else []
     )
 
+    # Add "run_id" column for selection tracking
+    run_data["run_id"] = run_data.get("run_id", "")
+
     return dbc.Container(
         [
             html.H1(
@@ -133,6 +136,50 @@ def create_layout(benchmark_options, run_data):
                 ],
                 className="mb-6",
             ),
+            # Comparison Section
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            html.Hr(),
+                            html.H3(
+                                "Run Comparison",
+                                className="text-2xl font-semibold text-indigo-900 mb-4 mt-6",
+                            ),
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        [
+                                            dbc.Button(
+                                                "Add to Compare",
+                                                id="add-to-compare-btn",
+                                                color="primary",
+                                                className="me-2",
+                                            ),
+                                            dbc.Button(
+                                                "Clear Comparison",
+                                                id="clear-compare-btn",
+                                                color="secondary",
+                                            ),
+                                        ],
+                                        width=12,
+                                    )
+                                ],
+                                className="mb-4",
+                            ),
+                            html.Div(id="selected-runs-display", className="mb-4"),
+                            html.Div(id="comparison-metrics-display"),
+                            html.Hr(className="my-4"),
+                            html.H5(
+                                "Classification Comparison",
+                                className="text-lg font-semibold text-indigo-900 mb-4",
+                            ),
+                            html.Div(id="comparison-datapoint-display"),
+                        ],
+                        width=12,
+                    )
+                ]
+            ),
             dbc.Row(
                 [
                     dbc.Col(
@@ -151,6 +198,7 @@ def create_layout(benchmark_options, run_data):
             dcc.Store(id="f1-click-data", data=None),
             dcc.Store(id="highlighted-run-id", data=initial_highlighted_run_id),
             dcc.Store(id="selected-confusion-cell", data=None),
+            dcc.Store(id="comparison-runs", data=[]),
             dcc.Download(id="download-datapoint-csv"),
         ],
         fluid=False,
