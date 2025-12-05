@@ -874,6 +874,16 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 selected_run_ids.append(leaderboard_data[i]["run_id"])
         return selected_run_ids
 
+
+    @app.callback(
+        Output("leaderboard-table", "selected_rows"),
+        Input("clear-compare-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def clear_leaderboard_selections(n_clicks):
+        # When the Clear Comparison button is clicked, also clear table row selections
+        return []
+
     @app.callback(
         [
             Output("comparison-datapoint-display", "children"),
