@@ -129,6 +129,8 @@ def create_layout(benchmark_options, run_data):
                                 page_size=6,
                                 filter_action="native",
                                 sort_action="native",
+                                row_selectable="multi",
+                                selected_rows=[],
                             ),
                         ],
                         width=12,
@@ -150,12 +152,6 @@ def create_layout(benchmark_options, run_data):
                                 [
                                     dbc.Col(
                                         [
-                                            dbc.Button(
-                                                "Add to Compare",
-                                                id="add-to-compare-btn",
-                                                color="primary",
-                                                className="me-2",
-                                            ),
                                             dbc.Button(
                                                 "Clear Comparison",
                                                 id="clear-compare-btn",

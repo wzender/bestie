@@ -845,37 +845,34 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             return filtered.to_dict("records"), None
         return run_data_filtered.to_dict("records"), None
 
-    # Comparison callbacks
+
+    # New comparison callback: update comparison-runs based on selected_rows in leaderboard-table
     @app.callback(
         Output("comparison-runs", "data"),
         [
-            Input("add-to-compare-btn", "n_clicks"),
+            Input("leaderboard-table", "selected_rows"),
             Input("clear-compare-btn", "n_clicks"),
         ],
         [
-            State("highlighted-run-id", "data"),
-            State("comparison-runs", "data"),
+            State("leaderboard-table", "data"),
         ],
         prevent_initial_call=True,
     )
-    def update_comparison_runs(add_clicks, clear_clicks, highlighted_run_id, current_comparison_runs):
+    def update_comparison_runs(selected_rows, clear_clicks, leaderboard_data):
         ctx = callback_context
         if not ctx.triggered:
             return no_update
-
         triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
         if triggered_id == "clear-compare-btn":
             return []
-        elif triggered_id == "add-to-compare-btn":
-            if not highlighted_run_id:
-                return current_comparison_runs
-            # Add run if not already in list, limit to 3 runs for comparison
-            if highlighted_run_id not in current_comparison_runs and len(current_comparison_runs) < 3:
-                return current_comparison_runs + [highlighted_run_id]
-            return current_comparison_runs
-
-        return current_comparison_runs
+        if not selected_rows or not leaderboard_data:
+            return []
+        # Get run_ids for selected rows, limited to first 3
+        selected_run_ids = []
+        for i in selected_rows[:3]:  # Only process first 3 selected rows
+            if i < len(leaderboard_data) and "run_id" in leaderboard_data[i]:
+                selected_run_ids.append(leaderboard_data[i]["run_id"])
+        return selected_run_ids
 
     @app.callback(
         Output("selected-runs-display", "children"),
