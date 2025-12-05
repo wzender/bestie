@@ -35,10 +35,12 @@ def generate_mock_data():
     # Create runs - multiple runs per benchmark
     n_runs_per_benchmark = 2
     run_data_list = []
+    run_number = 1
 
     for bench_idx, benchmark in enumerate(benchmarks):
         for run_offset in range(n_runs_per_benchmark):
             run_data_list.append({
+                "run_number": run_number,
                 "run_id": str(uuid4())[:8],
                 "sweep_id": f"sweep_{bench_idx % 3}",
                 "model_name": f"llama-{(bench_idx + run_offset) % 3 + 1}",
@@ -47,6 +49,7 @@ def generate_mock_data():
                 "accuracy": np.random.uniform(0.7, 0.95),
                 "f1_score": np.random.uniform(0.65, 0.9),
             })
+            run_number += 1
 
     run_data = pd.DataFrame(run_data_list)
 

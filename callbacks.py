@@ -875,135 +875,15 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         return selected_run_ids
 
     @app.callback(
-        Output("selected-runs-display", "children"),
-        Input("comparison-runs", "data"),
-    )
-    def display_selected_runs(comparison_runs):
-        if not comparison_runs:
-            return dbc.Alert("No runs selected for comparison", color="info")
-
-        # Get run details
-        comparison_data = run_data[run_data["run_id"].isin(comparison_runs)]
-
-        badges = []
-        for idx, run_id in enumerate(comparison_runs):
-            run_info = comparison_data[comparison_data["run_id"] == run_id]
-            if not run_info.empty:
-                model_name = run_info.iloc[0]["model_name"]
-                accuracy = run_info.iloc[0]["accuracy"]
-                badges.append(
-                    dbc.Badge(
-                        f"{idx+1}. {model_name} (Acc: {accuracy:.3f})",
-                        color="info",
-                        className="me-2 mb-2",
-                        pill=True,
-                    )
-                )
-
-        return dbc.Row([dbc.Col(badges, width=12)])
-
-    @app.callback(
-        Output("comparison-metrics-display", "children"),
-        Input("comparison-runs", "data"),
-    )
-    def display_comparison_metrics(comparison_runs):
-        if len(comparison_runs) < 2:
-            return html.Div()
-
-        comparison_data = run_data[run_data["run_id"].isin(comparison_runs)]
-
-        # Create comparison table
-        metrics_to_compare = ["model_name", "model_params", "accuracy", "f1_score"]
-        comparison_df = comparison_data[["run_id"] + metrics_to_compare].copy()
-        comparison_df.columns = ["Run ID", "Model", "Parameters", "Accuracy", "F1 Score"]
-
-        # Format numeric columns
-        comparison_df["Accuracy"] = comparison_df["Accuracy"].apply(lambda x: f"{x:.3f}")
-        comparison_df["F1 Score"] = comparison_df["F1 Score"].apply(lambda x: f"{x:.3f}")
-
-        table = DataTable(
-            columns=[{"name": col, "id": col} for col in comparison_df.columns],
-            data=comparison_df.to_dict("records"),
-            style_cell={
-                "textAlign": "center",
-                "padding": "12px",
-                "fontSize": "14px",
-                "fontFamily": "sans-serif",
-                "color": "#1F2937",
-            },
-            style_header={
-                "backgroundColor": "#E2E8F0",
-                "fontWeight": "600",
-                "fontSize": "14px",
-                "padding": "12px",
-                "color": "#1F2937",
-                "fontFamily": "sans-serif",
-            },
-            style_data={
-                "borderBottom": "1px solid #E2E8F0",
-            },
-        )
-
-        # Calculate differences if 2 runs
-        if len(comparison_runs) == 2:
-            run1_data = comparison_data.iloc[0]
-            run2_data = comparison_data.iloc[1]
-
-            acc_diff = run2_data["accuracy"] - run1_data["accuracy"]
-            f1_diff = run2_data["f1_score"] - run1_data["f1_score"]
-
-            acc_color = "success" if acc_diff > 0 else "danger" if acc_diff < 0 else "secondary"
-            f1_color = "success" if f1_diff > 0 else "danger" if f1_diff < 0 else "secondary"
-
-            diff_cards = dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    html.H6("Accuracy Difference", className="card-title"),
-                                    html.P(
-                                        f"{acc_diff:+.3f}",
-                                        className=f"text-lg font-bold text-{acc_color}-600",
-                                    ),
-                                ]
-                            ),
-                        ],
-                        width=6,
-                        lg=3,
-                        className="mb-3",
-                    ),
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    html.H6("F1 Score Difference", className="card-title"),
-                                    html.P(
-                                        f"{f1_diff:+.3f}",
-                                        className=f"text-lg font-bold text-{f1_color}-600",
-                                    ),
-                                ]
-                            ),
-                        ],
-                        width=6,
-                        lg=3,
-                        className="mb-3",
-                    ),
-                ],
-                className="mt-3 mb-4",
-            )
-
-            return html.Div([table, diff_cards])
-
-        return table
-
-    @app.callback(
-        Output("comparison-datapoint-display", "children"),
+        [
+            Output("comparison-datapoint-display", "children"),
+            Output("comparison-data-store", "data"),
+        ],
         Input("comparison-runs", "data"),
     )
     def display_comparison_datapoints(comparison_runs):
         if len(comparison_runs) < 2:
-            return html.Div()
+            return html.Div(), None
 
         # Get detailed data for all comparison runs
         comparison_detailed = detailed_data[detailed_data["run_id"].isin(comparison_runs)]
@@ -1025,12 +905,12 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
 
         # Build comparison table
         rows = []
-        for text in sample_texts:
+        for row_num, text in enumerate(sample_texts, start=1):
             text_data = comparison_sample[comparison_sample["text"] == text]
             if text_data.empty:
                 continue
 
-            row_dict = {"text": text[:50] + "..." if len(text) > 50 else text}
+            row_dict = {"index": row_num, "text": text[:50] + "..." if len(text) > 50 else text}
 
             # Add each run's predictions
             for idx, run_id in enumerate(comparison_runs):
@@ -1049,10 +929,14 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             rows.append(row_dict)
 
         # Create table columns dynamically
-        columns = [{"name": "Text Sample", "id": "text"}]
-        for idx in range(len(comparison_runs)):
-            columns.append({"name": f"Run {idx+1} - True", "id": f"run_{idx+1}_true"})
-            columns.append({"name": f"Run {idx+1} - Prediction", "id": f"run_{idx+1}_pred"})
+        columns = [{"name": "#", "id": "index"}]
+        columns.append({"name": "Text Sample", "id": "text"})
+        for idx, run_id in enumerate(comparison_runs, start=1):
+            # Get the run number for this run_id
+            run_info = run_data[run_data["run_id"] == run_id]
+            run_number = run_info.iloc[0]["run_number"] if not run_info.empty else idx
+            columns.append({"name": f"Run {run_number} - True", "id": f"run_{idx}_true"})
+            columns.append({"name": f"Run {run_number} - Prediction", "id": f"run_{idx}_pred"})
 
         # Style cells for correct/incorrect predictions
         style_data_conditional = []
@@ -1108,7 +992,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             page_size=10,
         )
 
-        return dbc.Card(
+        card = dbc.Card(
             [
                 dbc.CardBody(
                     [
@@ -1121,5 +1005,39 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 )
             ]
         )
+
+        # Store the rows data for export
+        return card, rows
+
+    # Export comparison datapoints to CSV
+    app.clientside_callback(
+        """
+        function(n_clicks, data) {
+            if (!n_clicks || !data || data.length === 0) return null;
+            const columns = Object.keys(data[0]);
+            let csv = columns.join(',') + '\\n';
+            data.forEach(row => {
+                const values = columns.map(col => {
+                    const value = row[col];
+                    if (value === null || value === undefined) return '';
+                    const str = String(value).replace(/"/g, '""');
+                    return `"${str}"`;
+                });
+                csv += values.join(',') + '\\n';
+            });
+            const filename = 'comparison_datapoints.csv';
+            return {
+                content: csv,
+                filename: filename,
+                type: 'text/csv',
+                base64: false
+            };
+        }
+        """,
+        Output("download-comparison-csv", "data"),
+        Input("export-comparison-csv-btn", "n_clicks"),
+        State("comparison-data-store", "data"),
+        prevent_initial_call=True,
+    )
 
 

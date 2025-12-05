@@ -63,6 +63,11 @@ def create_layout(benchmark_options, run_data):
                             DataTable(
                                 id="leaderboard-table",
                                 columns=[
+                                    {
+                                        "name": "Run #",
+                                        "id": "run_number",
+                                        "type": "numeric",
+                                    },
                                     {"name": "Model Name", "id": "model_name"},
                                     {"name": "Model Parameters", "id": "model_params"},
                                     {
@@ -163,12 +168,32 @@ def create_layout(benchmark_options, run_data):
                                 ],
                                 className="mb-4",
                             ),
-                            html.Div(id="selected-runs-display", className="mb-4"),
-                            html.Div(id="comparison-metrics-display"),
                             html.Hr(className="my-4"),
-                            html.H5(
-                                "Classification Comparison",
-                                className="text-lg font-semibold text-indigo-900 mb-4",
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        [
+                                            html.H5(
+                                                "Classification Comparison",
+                                                className="text-lg font-semibold text-indigo-900 mb-4",
+                                            ),
+                                        ],
+                                        width=10,
+                                    ),
+                                    dbc.Col(
+                                        [
+                                            dbc.Button(
+                                                "Export to CSV",
+                                                id="export-comparison-csv-btn",
+                                                color="info",
+                                                size="sm",
+                                                className="mt-1",
+                                            ),
+                                        ],
+                                        width=2,
+                                        className="text-end",
+                                    ),
+                                ]
                             ),
                             html.Div(id="comparison-datapoint-display"),
                         ],
@@ -195,7 +220,9 @@ def create_layout(benchmark_options, run_data):
             dcc.Store(id="highlighted-run-id", data=initial_highlighted_run_id),
             dcc.Store(id="selected-confusion-cell", data=None),
             dcc.Store(id="comparison-runs", data=[]),
+            dcc.Store(id="comparison-data-store", data=None),
             dcc.Download(id="download-datapoint-csv"),
+            dcc.Download(id="download-comparison-csv"),
         ],
         fluid=False,
         className="p-4 w-4/5 mx-auto",
