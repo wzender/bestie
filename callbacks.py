@@ -7,6 +7,7 @@ from dash import html, dcc
 from dash.dash_table import DataTable
 from utils import get_font_color
 from sklearn.metrics import f1_score
+import json
 
 F1_CIRCLE_SIZE = 35
 
@@ -195,10 +196,18 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             Input("highlighted-run-id", "data"),
             Input("selected-true-type", "data"),
             Input("selected-confusion-cell", "data"),
+            Input("show-unsuccessful-checkbox", "value"),
+            Input("confidence-threshold-slider", "value"),
         ],
         prevent_initial_call=True,
     )
-    def render_content(highlighted_run_id, selected_true_type, selected_confusion_cell):
+    def render_content(
+        highlighted_run_id,
+        selected_true_type,
+        selected_confusion_cell,
+        unsuccessful_filter,
+        confidence_threshold,
+    ):
         if not highlighted_run_id:
             return [
                 html.Div(),
@@ -210,6 +219,19 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 html.Div(),
             ]
         run_data_filtered = detailed_data[detailed_data["run_id"] == highlighted_run_id]
+        # Apply unsuccessful filter first
+        if unsuccessful_filter and "fail" in unsuccessful_filter:
+            run_data_filtered = run_data_filtered[~run_data_filtered["correct"].fillna(False)]
+        # Apply confidence range threshold
+        threshold_range = confidence_threshold or [0, 1]
+        min_conf, max_conf = (
+            threshold_range if len(threshold_range) == 2 else (0, 1)
+        )
+        if "confidence" in run_data_filtered.columns:
+            run_data_filtered = run_data_filtered[
+                (run_data_filtered["confidence"] >= min_conf)
+                & (run_data_filtered["confidence"] <= max_conf)
+            ]
         type_counts = (
             run_data_filtered["true_type"]
             .value_counts()
@@ -670,12 +692,13 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             )
         ]
         datapoint_columns = [
-            {"name": "Text", "id": "text"},
+            {"name": "Text", "id": "text", "presentation": "markdown"},
             {"name": "True Type", "id": "true_type"},
             {"name": "True Subtype", "id": "true_subtype"},
             {"name": "Pred Subtype", "id": "pred_subtype"},
             {"name": "Pred Unk Subtype", "id": "pred_unk_subtype"},
             {"name": "Correct", "id": "correct"},
+            {"name": "Confidence", "id": "confidence"},
         ]
         if selected_true_type and selected_true_type in all_types:
             table_data = run_data_filtered[
@@ -690,6 +713,19 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 (run_data_filtered["true_subtype"] == true_subtype)
                 & (run_data_filtered["pred_subtype"] == pred_subtype)
             ]
+        if unsuccessful_filter and "fail" in unsuccessful_filter:
+            table_data = table_data[~table_data["correct"].fillna(False)]
+        display_table_data = table_data.copy()
+        if "text" in display_table_data.columns:
+            display_table_data["text"] = display_table_data["text"].apply(
+                lambda val: (
+                    f"```json\n{json.dumps(val, indent=2)}\n```"
+                    if pd.api.types.is_dict_like(val)
+                    else val
+                )
+            )
+        if "confidence" in display_table_data.columns:
+            display_table_data["confidence"] = display_table_data["confidence"].round(3)
         current_count = len(table_data)
         total_count = len(run_data_filtered)
         notification = []
@@ -728,7 +764,8 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                             DataTable(
                                 id="datapoint-table",
                                 columns=datapoint_columns,
-                                data=table_data.to_dict("records"),
+                                data=display_table_data.to_dict("records"),
+                                markdown_options={"html": True},
                                 style_table={"overflowX": "auto"},
                                 style_cell={
                                     "textAlign": "left",
@@ -792,6 +829,8 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             Input("confusion-matrix", "clickData"),
             Input("highlighted-run-id", "data"),
             Input("selected-true-type", "data"),
+            Input("show-unsuccessful-checkbox", "value"),
+            Input("confidence-threshold-slider", "value"),
         ],
         [
             State("selected-confusion-cell", "data"),
@@ -802,11 +841,24 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         confusion_click_data,
         highlighted_run_id,
         selected_true_type,
+        unsuccessful_filter,
+        confidence_threshold,
         current_selected_cell,
     ):
         if not highlighted_run_id:
             return [], None
         run_data_filtered = detailed_data[detailed_data["run_id"] == highlighted_run_id]
+        if unsuccessful_filter and "fail" in unsuccessful_filter:
+            run_data_filtered = run_data_filtered[~run_data_filtered["correct"].fillna(False)]
+        threshold_range = confidence_threshold or [0, 1]
+        min_conf, max_conf = (
+            threshold_range if len(threshold_range) == 2 else (0, 1)
+        )
+        if "confidence" in run_data_filtered.columns:
+            run_data_filtered = run_data_filtered[
+                (run_data_filtered["confidence"] >= min_conf)
+                & (run_data_filtered["confidence"] <= max_conf)
+            ]
         ctx = callback_context
         if not ctx.triggered:
             return no_update, no_update
@@ -901,8 +953,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         if comparison_detailed.empty:
             return dbc.Alert("No datapoints available for comparison", color="warning")
 
-        # Get sample of datapoints to compare (limit to 20 for performance)
-        # Group by text to ensure we're comparing same samples
+        # Keep only datapoints that appear for all comparison runs
         grouped = comparison_detailed.groupby("text", as_index=False).filter(
             lambda x: len(x) == len(comparison_runs)
         )
@@ -910,69 +961,73 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         if grouped.empty:
             return dbc.Alert("No common datapoints between selected runs", color="info")
 
-        sample_texts = grouped["text"].unique()[:20]
-        comparison_sample = grouped[grouped["text"].isin(sample_texts)]
-
-        # Build comparison table
         rows = []
-        for row_num, text in enumerate(sample_texts, start=1):
-            text_data = comparison_sample[comparison_sample["text"] == text]
+        for text in grouped["text"].unique():
+            text_data = grouped[grouped["text"] == text]
             if text_data.empty:
                 continue
 
-            row_dict = {"index": row_num, "text": text[:50] + "..." if len(text) > 50 else text}
+            # Use the first run's true_subtype as the reference truth
+            base_run_id = comparison_runs[0]
+            base_row = text_data[text_data["run_id"] == base_run_id]
+            if base_row.empty:
+                continue
+            true_subtype = base_row.iloc[0].get("true_subtype", "N/A")
 
-            # Add each run's predictions
-            for idx, run_id in enumerate(comparison_runs):
-                run_text_data = text_data[text_data["run_id"] == run_id]
-                if not run_text_data.empty:
-                    row = run_text_data.iloc[0]
-                    true_subtype = row.get("true_subtype", "N/A")
-                    pred_subtype = row.get("pred_subtype", "N/A")
-                    correct = row.get("correct", False)
+            # Collect predictions for all runs
+            pred_values = []
+            row_dict = {
+                "text": text,
+                "true_subtype": true_subtype,
+            }
+            for run_id in comparison_runs:
+                run_row = text_data[text_data["run_id"] == run_id].iloc[0]
+                pred_subtype = run_row.get("pred_subtype", "N/A")
+                pred_values.append(pred_subtype)
+                status_icon = "✓" if pred_subtype == true_subtype else "✗"
+                row_dict[str(run_id)] = f"{pred_subtype} ({status_icon})"
 
-                    # Format: True: X → Pred: Y (✓/✗)
-                    status_icon = "✓" if correct else "✗"
-                    row_dict[f"run_{idx+1}_pred"] = f"{pred_subtype} ({status_icon})"
-                    row_dict[f"run_{idx+1}_true"] = true_subtype
+            # Keep only rows where predictions disagree across runs or differ from truth
+            preds_disagree = len(set(pred_values)) > 1
+            preds_vs_truth = any(p != true_subtype for p in pred_values)
+            if preds_disagree or preds_vs_truth:
+                rows.append(row_dict)
 
-            rows.append(row_dict)
+        if not rows:
+            return dbc.Alert("All common datapoints agree across runs", color="info")
 
-        # Create table columns dynamically
-        columns = [{"name": "#", "id": "index"}]
-        columns.append({"name": "Text Sample", "id": "text"})
-        for idx, run_id in enumerate(comparison_runs, start=1):
-            # Get the run number for this run_id
-            run_info = run_data[run_data["run_id"] == run_id]
-            run_number = run_info.iloc[0]["run_number"] if not run_info.empty else idx
-            columns.append({"name": f"Run {run_number} - True", "id": f"run_{idx}_true"})
-            columns.append({"name": f"Run {run_number} - Prediction", "id": f"run_{idx}_pred"})
+        # Build columns: text, true subtype, then one column per run_id
+        columns = [
+            {"name": "Text", "id": "text"},
+            {"name": "True Subtype", "id": "true_subtype"},
+        ]
+        for run_id in comparison_runs:
+            columns.append({"name": f"{run_id} Pred Subtype", "id": str(run_id)})
 
         # Style cells for correct/incorrect predictions
         style_data_conditional = []
-        for idx in range(len(comparison_runs)):
-            # Highlight correct predictions in green, incorrect in red
-            for row_idx, row in enumerate(rows):
-                if f"run_{idx+1}_pred" in row:
-                    pred_text = row[f"run_{idx+1}_pred"]
-                    if "✓" in pred_text:
-                        style_data_conditional.append({
-                            "if": {
-                                "column_id": f"run_{idx+1}_pred",
-                                "row_index": row_idx
-                            },
-                            "backgroundColor": "#DCFCE7",
-                            "color": "#166534"
-                        })
-                    else:
-                        style_data_conditional.append({
-                            "if": {
-                                "column_id": f"run_{idx+1}_pred",
-                                "row_index": row_idx
-                            },
-                            "backgroundColor": "#FEE2E2",
-                            "color": "#991B1B"
-                        })
+        for run_id in comparison_runs:
+            col_id = str(run_id)
+            style_data_conditional.extend(
+                [
+                    {
+                        "if": {
+                            "column_id": col_id,
+                            "filter_query": f'{{{col_id}}} contains "✓"',
+                        },
+                        "backgroundColor": "#DCFCE7",
+                        "color": "#166534",
+                    },
+                    {
+                        "if": {
+                            "column_id": col_id,
+                            "filter_query": f'{{{col_id}}} contains "✗"',
+                        },
+                        "backgroundColor": "#FEE2E2",
+                        "color": "#991B1B",
+                    },
+                ]
+            )
 
         table = DataTable(
             columns=columns,
@@ -1007,7 +1062,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 dbc.CardBody(
                     [
                         html.P(
-                            f"Showing {len(rows)} datapoints classified by all {len(comparison_runs)} runs",
+                            f"Showing {len(rows)} datapoints where runs disagree or differ from truth",
                             className="text-sm text-gray-600 mb-3"
                         ),
                         table,
@@ -1049,5 +1104,3 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         State("comparison-data-store", "data"),
         prevent_initial_call=True,
     )
-
-

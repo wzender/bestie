@@ -86,6 +86,10 @@ def generate_mock_data():
             run_data_chunk["true_subtype"] == run_data_chunk["pred_subtype"]
         )
 
+        # Simulated model confidence between 0 and 1
+        np.random.seed(44 + hash(run_id) % (2**32))
+        run_data_chunk["confidence"] = np.random.uniform(0, 1, size=len(run_data_chunk))
+
         np.random.seed(43 + hash(run_id) % (2**32))
         run_data_chunk["pred_unk_subtype"] = np.random.choice(
             all_unk_subtypes, size=len(run_data_chunk), p=[0.09] * 10 + [0.1]

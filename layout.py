@@ -1,3 +1,4 @@
+import pandas as pd
 import dash_bootstrap_components as dbc
 from dash.dash_table import DataTable
 from dash import dcc, html
@@ -18,11 +19,81 @@ def create_layout(benchmark_options, run_data):
     # Add "run_id" column for selection tracking
     run_data["run_id"] = run_data.get("run_id", "")
 
+    # Build DataTable columns dynamically from run_data
+    def to_column_def(column_name):
+        col_def = {
+            "name": column_name.replace("_", " ").title(),
+            "id": column_name,
+        }
+        if pd.api.types.is_numeric_dtype(run_data[column_name]):
+            col_def["type"] = "numeric"
+            if pd.api.types.is_float_dtype(run_data[column_name]):
+                col_def["format"] = {"specifier": ".3f"}
+        return col_def
+
+    leaderboard_columns = [to_column_def(col) for col in run_data.columns]
+
+    hidden_columns = [col for col in ["run_id"] if col in run_data.columns]
+
     return dbc.Container(
         [
             html.H1(
                 "Magellan - Text Classification Leaderboard",
                 className="text-3xl font-bold text-indigo-900 mb-6 mt-4 text-center",
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        dbc.Checklist(
+                                            id="show-unsuccessful-checkbox",
+                                            options=[
+                                                {
+                                                    "label": "Show only unsuccessful predictions",
+                                                    "value": "fail",
+                                                }
+                                            ],
+                                            value=[],
+                                            switch=True,
+                                            className="mb-3 text-sm text-indigo-900",
+                                        ),
+                                        width=4,
+                                        className="d-flex align-items-center",
+                                    ),
+                                    dbc.Col(
+                                        [
+                                            html.Div(
+                                                "Minimum confidence",
+                                                className="text-sm text-indigo-900 mb-1",
+                                            ),
+                                            dcc.RangeSlider(
+                                                id="confidence-threshold-slider",
+                                                min=0,
+                                                max=1,
+                                                step=0.05,
+                                                value=[0, 1],
+                                                marks={
+                                                    0: "0.0",
+                                                    0.5: "0.5",
+                                                    1: "1.0",
+                                                },
+                                                tooltip={"always_visible": False},
+                                            ),
+                                        ],
+                                        width=8,
+                                    ),
+                                ],
+                                align="center",
+                            ),
+                        ],
+                        width=12,
+                        className="d-flex justify-content-start",
+                    )
+                ],
+                className="mb-2",
             ),
             dbc.Row(
                 [
@@ -62,30 +133,11 @@ def create_layout(benchmark_options, run_data):
                             ),
                             DataTable(
                                 id="leaderboard-table",
-                                columns=[
-                                    {
-                                        "name": "Run #",
-                                        "id": "run_number",
-                                        "type": "numeric",
-                                    },
-                                    {"name": "Model Name", "id": "model_name"},
-                                    {"name": "Model Parameters", "id": "model_params"},
-                                    {
-                                        "name": "Accuracy",
-                                        "id": "accuracy",
-                                        "type": "numeric",
-                                        "format": {"specifier": ".3f"},
-                                    },
-                                    {
-                                        "name": "F1 Score",
-                                        "id": "f1_score",
-                                        "type": "numeric",
-                                        "format": {"specifier": ".3f"},
-                                    },
-                                ],
+                                columns=leaderboard_columns,
                                 data=run_data[
                                     run_data["benchmark"] == benchmark_options[0]["value"]
                                 ].to_dict("records"),
+                                hidden_columns=hidden_columns,
                                 style_table={
                                     "overflowX": "auto",
                                     "maxHeight": "40vh",
