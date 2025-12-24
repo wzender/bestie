@@ -196,63 +196,59 @@ def create_layout(benchmark_options, run_data):
                 className="mb-6",
             ),
             # Comparison Section
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            html.Hr(),
-                            html.H3(
-                                "Run Comparison",
-                                className="text-2xl font-semibold text-indigo-900 mb-4 mt-6",
+            dbc.Row([
+                dbc.Col([
+                    html.Hr(),
+                    html.H3(
+                        "Run Comparison",
+                        className="text-2xl font-semibold text-indigo-900 mb-4 mt-6",
+                    ),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Button(
+                                "Clear Comparison",
+                                id="clear-compare-btn",
+                                color="secondary",
                             ),
-                            dbc.Row(
-                                [
-                                    dbc.Col(
-                                        [
-                                            dbc.Button(
-                                                "Clear Comparison",
-                                                id="clear-compare-btn",
-                                                color="secondary",
-                                            ),
-                                        ],
-                                        width=12,
-                                    )
-                                ],
-                                className="mb-4",
+                        ], width=12),
+                    ], className="mb-4"),
+                    html.Hr(className="my-4"),
+                    dbc.Row([
+                        dbc.Col([
+                            html.H5(
+                                "Classification Comparison",
+                                className="text-lg font-semibold text-indigo-900 mb-4",
                             ),
-                            html.Hr(className="my-4"),
-                            dbc.Row(
-                                [
-                                    dbc.Col(
-                                        [
-                                            html.H5(
-                                                "Classification Comparison",
-                                                className="text-lg font-semibold text-indigo-900 mb-4",
-                                            ),
-                                        ],
-                                        width=10,
-                                    ),
-                                    dbc.Col(
-                                        [
-                                            dbc.Button(
-                                                "Export to CSV",
-                                                id="export-comparison-csv-btn",
-                                                color="info",
-                                                size="sm",
-                                                className="mt-1",
-                                            ),
-                                        ],
-                                        width=2,
-                                        className="text-end",
-                                    ),
-                                ]
+                        ], width=8),
+                        dbc.Col([
+                            html.Div([
+                                html.Label("Top N Subtypes", className="me-2"),
+                                dcc.Slider(
+                                    id="top-n-subtypes-slider",
+                                    min=2,
+                                    max=40,
+                                    step=1,
+                                    value=20,
+                                    marks={i: str(i) for i in [2, 5, 10, 20, 30, 40]},
+                                    tooltip={"always_visible": False},
+                                    className="w-100"
+                                ),
+                            ], className="d-flex align-items-center justify-content-end"),
+                        ], width=2),
+                        dbc.Col([
+                            dbc.Button(
+                                "Export to CSV",
+                                id="export-comparison-csv-btn",
+                                color="info",
+                                size="sm",
+                                className="mt-1",
                             ),
-                            html.Div(id="comparison-datapoint-display"),
-                        ],
-                        width=12,
-                    )
-                ]
-            ),
+                        ], width=2, className="text-end"),
+                    ]),
+                    html.Div(id="comparison-transition-matrix"),
+                    html.Div(id="comparison-matrix-details"),
+                ], width=12),
+            ]),
             dbc.Row(
                 [
                     dbc.Col(

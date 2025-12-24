@@ -43,6 +43,285 @@ def f1_to_rgb(f1, f1_min=0.0, f1_max=1.0):
 
 
 def register_callbacks(app, run_data, detailed_data, test_run_id):
+        # --- Classification Comparison: Transition Matrix and Slider ---
+    @app.callback(
+        Output("comparison-transition-matrix", "children"),
+        [
+            Input("comparison-runs", "data"),
+            Input("top-n-subtypes-slider", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def render_comparison_transition_matrix(comparison_runs, n_subtypes):
+        if not comparison_runs or len(comparison_runs) < 2:
+            return html.Div("Select at least two runs for comparison."), html.Div()
+
+        # Get detailed data for all comparison runs
+        comparison_detailed = detailed_data[detailed_data["run_id"].isin(comparison_runs)]
+        if comparison_detailed.empty:
+            return dbc.Alert("No datapoints available for comparison", color="warning"), html.Div()
+
+        # Build transition matrix: for each pair of runs, count transitions between subtypes
+        # We'll use the first two runs for the matrix (extendable to more runs if needed)
+        run1, run2 = comparison_runs[:2]
+        df1 = comparison_detailed[comparison_detailed["run_id"] == run1][["text", "true_subtype", "pred_subtype"]].rename(columns={"pred_subtype": f"pred_{run1}"})
+        df2 = comparison_detailed[comparison_detailed["run_id"] == run2][["text", "true_subtype", "pred_subtype"]].rename(columns={"pred_subtype": f"pred_{run2}"})
+        merged = pd.merge(df1, df2, on=["text", "true_subtype"], suffixes=(f"_{run1}", f"_{run2}"))
+        if merged.empty:
+            return dbc.Alert("No common datapoints between the selected runs.", color="info"), html.Div()
+
+        # Determine top N subtypes by actual sample count within merged
+        subtype_counts = merged["true_subtype"].value_counts()
+        # Use a sensible default if slider hasn't provided a value yet
+        if not isinstance(n_subtypes, int) or n_subtypes <= 0:
+            n_subtypes = min(20, len(subtype_counts))
+        top_subtypes = subtype_counts.head(n_subtypes).index.tolist()
+        if len(top_subtypes) < 2:
+            return dbc.Alert("Not enough subtypes with samples for matrix.", color="info"), html.Div()
+        # Keep only rows where true_subtype is in top_subtypes
+        merged = merged[merged["true_subtype"].isin(top_subtypes)]
+        # Build crosstab (transition matrix, counts)
+        matrix_counts = pd.crosstab(
+            merged[f"pred_{run1}"],
+            merged[f"pred_{run2}"],
+            rownames=[f"{run1} Prediction"],
+            colnames=[f"{run2} Prediction"],
+            dropna=False
+        ).reindex(index=top_subtypes, columns=top_subtypes, fill_value=0)
+
+        # Sort subtypes similar to confusion matrix (by F1 score, ascending) using run1 as reference
+        texts_in_merged = set(merged["text"].unique())
+        df1_for_f1 = df1[df1["text"].isin(texts_in_merged) & df1["true_subtype"].isin(top_subtypes)]
+        f1_pairs = []
+        for subtype in top_subtypes:
+            sub_df = df1_for_f1[df1_for_f1["true_subtype"] == subtype]
+            if not sub_df.empty:
+                f1_val = f1_score(
+                    sub_df["true_subtype"],
+                    sub_df[f"pred_{run1}"],
+                    labels=[subtype],
+                    average="weighted",
+                    zero_division=0,
+                )
+            else:
+                f1_val = 0
+            f1_pairs.append((subtype, f1_val))
+        sorted_subtypes = [s for s, _ in sorted(f1_pairs, key=lambda t: t[1])]
+        matrix_counts = matrix_counts.reindex(index=sorted_subtypes, columns=sorted_subtypes, fill_value=0)
+
+        # Remove zero-only rows and columns
+        row_nonzero = (matrix_counts.sum(axis=1) > 0)
+        col_nonzero = (matrix_counts.sum(axis=0) > 0)
+        subtypes_to_keep = [s for s in matrix_counts.index if row_nonzero.get(s, False) or col_nonzero.get(s, False)]
+        if len(subtypes_to_keep) < 2:
+            return dbc.Alert("No transitions to display after filtering zero-only subtypes.", color="info"), html.Div()
+        # Preserve F1-sorted order while filtering
+        sorted_filtered = [s for s in sorted_subtypes if s in subtypes_to_keep]
+        matrix_counts = matrix_counts.loc[sorted_filtered, sorted_filtered]
+
+
+        # Prepare heatmap for Dash (show counts in cell, styled like confusion matrix)
+        z = matrix_counts.values
+        x_labels = matrix_counts.columns.tolist()
+        y_labels = matrix_counts.index.tolist()
+        hovertext = [[
+            f"{run1}: {y}<br>{run2}: {x}<br>Count: {z[i][j]}"
+            for j, x in enumerate(x_labels)
+        ] for i, y in enumerate(y_labels)]
+
+        # Color scale and font color logic (same as confusion matrix)
+        z_min, z_max = z.min(), z.max()
+        vivid_scale = [[0.0, "#111827"], [0.5, "#6B7280"], [1.0, "#06B6D4"]]  # Same as confusion matrix
+        # Compute normalized values for color mapping
+        if z_max == z_min:
+            z_normalized = np.zeros_like(z, dtype=float)
+        else:
+            z_normalized = (z - z_min) / (z_max - z_min)
+        # Compute cell background colors
+        def interp_color(val, scale):
+            for k in range(len(scale) - 1):
+                if val <= scale[k + 1][0]:
+                    frac = (
+                        (val - scale[k][0]) / (scale[k + 1][0] - scale[k][0])
+                        if scale[k + 1][0] != scale[k][0] else 0
+                    )
+                    rgb_start = [int(scale[k][1].lstrip("#")[i:i+2], 16) for i in range(0, 6, 2)]
+                    rgb_end = [int(scale[k + 1][1].lstrip("#")[i:i+2], 16) for i in range(0, 6, 2)]
+                    rgb = [int(rgb_start[c] + frac * (rgb_end[c] - rgb_start[c])) for c in range(3)]
+                    return f"rgb({rgb[0]},{rgb[1]},{rgb[2]})"
+            return scale[-1][1]
+        cell_colors = [[interp_color(z_normalized[i, j], vivid_scale) for j in range(z.shape[1])] for i in range(z.shape[0])]
+        font_colors = [[get_font_color(cell_colors[i][j]) for j in range(z.shape[1])] for i in range(z.shape[0])]
+
+        fig = go.Figure(
+            data=[
+                go.Heatmap(
+                    z=z,
+                    x=x_labels,
+                    y=y_labels,
+                    colorscale=vivid_scale,
+                    showscale=False,
+                    text=z,
+                    texttemplate="%{text}",
+                    textfont=dict(size=12, family="sans-serif"),
+                    hoverinfo="z+x+y",
+                )
+            ]
+        )
+        # Overlay text for counts with dynamic font color (as in confusion matrix)
+        fig.add_trace(
+            go.Scatter(
+                x=[x_labels[j] for i in range(len(y_labels)) for j in range(len(x_labels))],
+                y=[y_labels[i] for i in range(len(y_labels)) for j in range(len(x_labels))],
+                text=[str(z[i][j]) for i in range(len(y_labels)) for j in range(len(x_labels))],
+                mode="text",
+                textfont=dict(
+                    size=12,
+                    color=[font_colors[i][j] for i in range(len(y_labels)) for j in range(len(x_labels))],
+                    family="sans-serif",
+                ),
+                hoverinfo="none",
+                showlegend=False,
+            )
+        )
+        cell_size = 40
+        num_subtypes = len(y_labels)
+        graph_width = cell_size * num_subtypes + 80
+        fig.update_layout(
+            xaxis=dict(
+                tickangle=45,
+                tickfont=dict(size=12, color="#1F2937"),
+                categoryorder="array",
+                categoryarray=x_labels,
+                title=dict(text=f"{run2} Prediction", font=dict(size=12, color="#1F2937", family="sans-serif")),
+            ),
+            yaxis=dict(
+                tickfont=dict(size=12, color="#1F2937"),
+                categoryorder="array",
+                categoryarray=y_labels,
+                title=dict(text=f"{run1} Prediction", font=dict(size=12, color="#1F2937", family="sans-serif")),
+            ),
+            width=graph_width,
+            height=40 * num_subtypes + 120,
+            margin=dict(l=20, r=20, t=40, b=80),
+            plot_bgcolor="#F8FAFC",
+            paper_bgcolor="#F8FAFC",
+        )
+
+        # Handle cell click for details
+        return dcc.Graph(
+            id="transition-matrix-graph",
+            figure=fig,
+            config={
+                "displayModeBar": False,
+                "scrollZoom": False,
+            },
+            className="p-0",
+        )
+
+    @app.callback(
+        Output("comparison-matrix-details", "children"),
+        [
+            Input("transition-matrix-graph", "clickData"),
+        ],
+        [
+            State("comparison-runs", "data"),
+            State("top-n-subtypes-slider", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def update_comparison_matrix_details(matrix_click, comparison_runs, n_subtypes):
+        if not comparison_runs or len(comparison_runs) < 2:
+            return html.Div()
+        if not matrix_click or "points" not in matrix_click or not matrix_click["points"]:
+            return html.Div()
+        # Recompute merged to filter rows
+        run1, run2 = comparison_runs[:2]
+        df1 = detailed_data[detailed_data["run_id"] == run1][["text", "true_subtype", "pred_subtype"]].rename(columns={"pred_subtype": f"pred_{run1}"})
+        df2 = detailed_data[detailed_data["run_id"] == run2][["text", "true_subtype", "pred_subtype"]].rename(columns={"pred_subtype": f"pred_{run2}"})
+        merged = pd.merge(df1, df2, on=["text", "true_subtype"], suffixes=(f"_{run1}", f"_{run2}"))
+        if merged.empty:
+            return dbc.Alert("No common datapoints between the selected runs.", color="info")
+        # Top N subtypes from merged
+        subtype_counts = merged["true_subtype"].value_counts()
+        if not isinstance(n_subtypes, int) or n_subtypes <= 0:
+            n_subtypes = min(20, len(subtype_counts))
+        top_subtypes = subtype_counts.head(n_subtypes).index.tolist()
+        merged = merged[merged["true_subtype"].isin(top_subtypes)]
+        # Extract clicked cell
+        point = matrix_click["points"][0]
+        pred1 = point.get("y")
+        pred2 = point.get("x")
+        if pred1 is None or pred2 is None:
+            return html.Div()
+        filtered = merged[(merged[f"pred_{run1}"] == pred1) & (merged[f"pred_{run2}"] == pred2)]
+        if filtered.empty:
+            return dbc.Alert("No datapoints for this cell.", color="info")
+        # Prepare display data like the Datapoint Table (markdown for JSON text)
+        display_data = filtered.copy()
+        if "text" in display_data.columns:
+            display_data["text"] = display_data["text"].apply(
+                lambda val: (
+                    f"```json\n{json.dumps(val, indent=2)}\n```" if pd.api.types.is_dict_like(val) else val
+                )
+            )
+        columns = [
+            {"name": "Text", "id": "text", "presentation": "markdown"},
+            {"name": "True Subtype", "id": "true_subtype"},
+            {"name": f"{run1} Prediction", "id": f"pred_{run1}"},
+            {"name": f"{run2} Prediction", "id": f"pred_{run2}"},
+        ]
+        row_count = len(display_data)
+        details_table = DataTable(
+            id="comparison-datapoint-table",
+            columns=columns,
+            data=display_data.to_dict("records"),
+            markdown_options={"html": True},
+            style_table={"overflowX": "auto"},
+            style_cell={
+                "textAlign": "left",
+                "padding": "12px",
+                "fontSize": "14px",
+                "fontFamily": "sans-serif",
+                "color": "#1F2937",
+            },
+            style_header={
+                "backgroundColor": "#E2E8F0",
+                "fontWeight": "600",
+                "fontSize": "14px",
+                "padding": "12px",
+                "color": "#1F2937",
+                "fontFamily": "sans-serif",
+            },
+            style_data={
+                "borderBottom": "1px solid #E2E8F0",
+                "transition": "background-color 0.2s",
+            },
+            style_data_conditional=[
+                {"if": {"state": "selected"}, "backgroundColor": "#4ADE80", "border": "1px solid #06B6D4"},
+                {"if": {"state": "active"}, "backgroundColor": "#A7F3D0", "border": "1px solid #06B6D4"},
+            ],
+            page_size=10,
+            filter_action="native",
+            sort_action="native",
+        )
+        return dbc.Card(
+            [
+                dbc.CardBody(
+                    [
+                        html.H4(
+                            f"Comparison Datapoints (Selected: {pred1} → {pred2})",
+                            className="text-xl font-semibold text-indigo-900 mb-3",
+                        ),
+                        details_table,
+                        html.Div(
+                            f"Showing {row_count} items",
+                            className="mt-3 text-sm text-gray-600 bg-slate-200 py-2 px-4 rounded-full inline-block",
+                        ),
+                    ]
+                )
+            ]
+        )
     all_types = [chr(65 + i) for i in range(20)] + ["Perfect", "WorstMin", "Medium"]
 
     # @app.callback(
