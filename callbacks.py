@@ -1183,18 +1183,22 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         [
             Input("leaderboard-table", "selected_rows"),
             Input("clear-compare-btn", "n_clicks"),
+            Input("benchmark-dropdown", "value"),
         ],
         [
             State("leaderboard-table", "data"),
         ],
         prevent_initial_call=True,
     )
-    def update_comparison_runs(selected_rows, clear_clicks, leaderboard_data):
+    def update_comparison_runs(selected_rows, clear_clicks, benchmark_value, leaderboard_data):
         ctx = callback_context
         if not ctx.triggered:
             return no_update
         triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
         if triggered_id == "clear-compare-btn":
+            return []
+        if triggered_id == "benchmark-dropdown":
+            # Clear comparison when switching benchmarks
             return []
         if not selected_rows or not leaderboard_data:
             return []
@@ -1208,11 +1212,14 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
 
     @app.callback(
         Output("leaderboard-table", "selected_rows"),
-        Input("clear-compare-btn", "n_clicks"),
+        [
+            Input("clear-compare-btn", "n_clicks"),
+            Input("benchmark-dropdown", "value"),
+        ],
         prevent_initial_call=True,
     )
-    def clear_leaderboard_selections(n_clicks):
-        # When the Clear Comparison button is clicked, also clear table row selections
+    def clear_leaderboard_selections(n_clicks, benchmark_value):
+        # Clear table row selections when Clear Comparison is clicked or benchmark changes
         return []
 
     @app.callback(
@@ -1230,7 +1237,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         comparison_detailed = detailed_data[detailed_data["run_id"].isin(comparison_runs)]
 
         if comparison_detailed.empty:
-            return dbc.Alert("No datapoints available for comparison", color="warning")
+            return dbc.Alert("No datapoints available for comparison", color="warning"), None
 
         # Keep only datapoints that appear for all comparison runs
         grouped = comparison_detailed.groupby("text", as_index=False).filter(
@@ -1238,7 +1245,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         )
 
         if grouped.empty:
-            return dbc.Alert("No common datapoints between selected runs", color="info")
+            return dbc.Alert("No common datapoints between selected runs", color="info"), None
 
         rows = []
         for text in grouped["text"].unique():
@@ -1273,7 +1280,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 rows.append(row_dict)
 
         if not rows:
-            return dbc.Alert("All common datapoints agree across runs", color="info")
+            return dbc.Alert("All common datapoints agree across runs", color="info"), None
 
         # Build columns: text, true subtype, then one column per run_id
         columns = [
@@ -1353,33 +1360,4 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         # Store the rows data for export
         return card, rows
 
-    # Export comparison datapoints to CSV
-    app.clientside_callback(
-        """
-        function(n_clicks, data) {
-            if (!n_clicks || !data || data.length === 0) return null;
-            const columns = Object.keys(data[0]);
-            let csv = columns.join(',') + '\\n';
-            data.forEach(row => {
-                const values = columns.map(col => {
-                    const value = row[col];
-                    if (value === null || value === undefined) return '';
-                    const str = String(value).replace(/"/g, '""');
-                    return `"${str}"`;
-                });
-                csv += values.join(',') + '\\n';
-            });
-            const filename = 'comparison_datapoints.csv';
-            return {
-                content: csv,
-                filename: filename,
-                type: 'text/csv',
-                base64: false
-            };
-        }
-        """,
-        Output("download-comparison-csv", "data"),
-        Input("export-comparison-csv-btn", "n_clicks"),
-        State("comparison-data-store", "data"),
-        prevent_initial_call=True,
-    )
+    

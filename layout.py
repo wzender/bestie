@@ -183,16 +183,8 @@ def create_layout(benchmark_options, run_data):
                                             className="w-100"
                                         ),
                                     ], className="d-flex align-items-center justify-content-end"),
-                                ], width=2),
-                                dbc.Col([
-                                    dbc.Button(
-                                        "Export to CSV",
-                                        id="export-comparison-csv-btn",
-                                        color="info",
-                                        size="sm",
-                                        className="mt-1",
-                                    ),
-                                ], width=2, className="text-end"),
+                                ], width=4),
+                                
                             ]),
                             html.Div(id="comparison-transition-matrix"),
                             html.Div(id="comparison-matrix-details"),
@@ -265,7 +257,6 @@ def create_layout(benchmark_options, run_data):
             dcc.Store(id="comparison-runs", data=[]),
             dcc.Store(id="comparison-data-store", data=None),
             dcc.Download(id="download-datapoint-csv"),
-            dcc.Download(id="download-comparison-csv"),
         ],
         fluid=False,
         className="p-4 w-4/5 mx-auto",
