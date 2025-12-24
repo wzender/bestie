@@ -41,60 +41,7 @@ def create_layout(benchmark_options, run_data):
                 "Magellan - Text Classification Leaderboard",
                 className="text-3xl font-bold text-indigo-900 mb-6 mt-4 text-center",
             ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dbc.Row(
-                                [
-                                    dbc.Col(
-                                        dbc.Checklist(
-                                            id="show-unsuccessful-checkbox",
-                                            options=[
-                                                {
-                                                    "label": "Show only unsuccessful predictions",
-                                                    "value": "fail",
-                                                }
-                                            ],
-                                            value=[],
-                                            switch=True,
-                                            className="mb-3 text-sm text-indigo-900",
-                                        ),
-                                        width=4,
-                                        className="d-flex align-items-center",
-                                    ),
-                                    dbc.Col(
-                                        [
-                                            html.Div(
-                                                "Minimum confidence",
-                                                className="text-sm text-indigo-900 mb-1",
-                                            ),
-                                            dcc.RangeSlider(
-                                                id="confidence-threshold-slider",
-                                                min=0,
-                                                max=1,
-                                                step=0.05,
-                                                value=[0, 1],
-                                                marks={
-                                                    0: "0.0",
-                                                    0.5: "0.5",
-                                                    1: "1.0",
-                                                },
-                                                tooltip={"always_visible": False},
-                                            ),
-                                        ],
-                                        width=8,
-                                    ),
-                                ],
-                                align="center",
-                            ),
-                        ],
-                        width=12,
-                        className="d-flex justify-content-start",
-                    )
-                ],
-                className="mb-2",
-            ),
+
             dbc.Row(
                 [
                     dbc.Col(
@@ -213,42 +160,90 @@ def create_layout(benchmark_options, run_data):
                         ], width=12),
                     ], className="mb-4"),
                     html.Hr(className="my-4"),
-                    dbc.Row([
-                        dbc.Col([
-                            html.H5(
-                                "Classification Comparison",
-                                className="text-lg font-semibold text-indigo-900 mb-4",
-                            ),
-                        ], width=8),
-                        dbc.Col([
-                            html.Div([
-                                html.Label("Top N Subtypes", className="me-2"),
-                                dcc.Slider(
-                                    id="top-n-subtypes-slider",
-                                    min=2,
-                                    max=40,
-                                    step=1,
-                                    value=20,
-                                    marks={i: str(i) for i in [2, 5, 10, 20, 30, 40]},
-                                    tooltip={"always_visible": False},
-                                    className="w-100"
-                                ),
-                            ], className="d-flex align-items-center justify-content-end"),
-                        ], width=2),
-                        dbc.Col([
-                            dbc.Button(
-                                "Export to CSV",
-                                id="export-comparison-csv-btn",
-                                color="info",
-                                size="sm",
-                                className="mt-1",
-                            ),
-                        ], width=2, className="text-end"),
-                    ]),
-                    html.Div(id="comparison-transition-matrix"),
-                    html.Div(id="comparison-matrix-details"),
+                    dbc.Card([
+                        dbc.CardBody([
+                            dbc.Row([
+                                dbc.Col([
+                                    html.H5(
+                                        "Classification Comparison",
+                                        className="text-lg font-semibold text-indigo-900 mb-4",
+                                    ),
+                                ], width=8),
+                                dbc.Col([
+                                    html.Div([
+                                        html.Label("Top N Subtypes", className="me-2"),
+                                        dcc.Slider(
+                                            id="top-n-subtypes-slider",
+                                            min=2,
+                                            max=40,
+                                            step=1,
+                                            value=20,
+                                            marks={i: str(i) for i in [2, 5, 10, 20, 30, 40]},
+                                            tooltip={"always_visible": False},
+                                            className="w-100"
+                                        ),
+                                    ], className="d-flex align-items-center justify-content-end"),
+                                ], width=2),
+                                dbc.Col([
+                                    dbc.Button(
+                                        "Export to CSV",
+                                        id="export-comparison-csv-btn",
+                                        color="info",
+                                        size="sm",
+                                        className="mt-1",
+                                    ),
+                                ], width=2, className="text-end"),
+                            ]),
+                            html.Div(id="comparison-transition-matrix"),
+                            html.Div(id="comparison-matrix-details"),
+                        ])
+                    ], className="p-6 bg-slate-50 rounded-lg shadow-md mb-6"),
                 ], width=12),
             ]),
+            # Separate Filters Card above Type Metrics
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H5(
+                                "Filters",
+                                className="text-lg font-semibold text-indigo-900 mb-3",
+                            ),
+                            dbc.Row([
+                                dbc.Col(
+                                    dbc.Checklist(
+                                        id="show-unsuccessful-checkbox",
+                                        options=[
+                                            {"label": "Show only unsuccessful predictions", "value": "fail"}
+                                        ],
+                                        value=[],
+                                        switch=True,
+                                        className="mb-3 text-sm text-indigo-900",
+                                    ),
+                                    width=4,
+                                    className="d-flex align-items-center",
+                                ),
+                                dbc.Col([
+                                    html.Div(
+                                        "Confidence Range",
+                                        className="text-sm text-indigo-900 mb-1",
+                                    ),
+                                    dcc.RangeSlider(
+                                        id="confidence-threshold-slider",
+                                        min=0,
+                                        max=1,
+                                        step=0.05,
+                                        value=[0, 1],
+                                        marks={0: "0.0", 0.5: "0.5", 1: "1.0"},
+                                        tooltip={"always_visible": False},
+                                    ),
+                                ], width=8),
+                            ], align="center"),
+                        ])
+                    ], className="p-6 bg-slate-50 rounded-lg shadow-md mb-4"),
+                ], width=12),
+            ]),
+
             dbc.Row(
                 [
                     dbc.Col(
