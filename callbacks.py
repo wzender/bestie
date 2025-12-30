@@ -70,30 +70,28 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         if merged.empty:
             return dbc.Alert("No common datapoints between the selected runs.", color="info"), html.Div()
 
-        # Determine top N subtypes by actual sample count within merged
-        subtype_counts = merged["true_subtype"].value_counts()
-        # Use a sensible default if slider hasn't provided a value yet
-        if not isinstance(n_subtypes, int) or n_subtypes <= 0:
-            n_subtypes = min(20, len(subtype_counts))
-        top_subtypes = subtype_counts.head(n_subtypes).index.tolist()
-        if len(top_subtypes) < 2:
+        # Determine all subtypes across truth and predictions (ignore top-N slider)
+        labels_union = sorted(list(
+            set(merged["true_subtype"].dropna().unique())
+            | set(merged[f"pred_{run1}"].dropna().unique())
+            | set(merged[f"pred_{run2}"].dropna().unique())
+        ))
+        if len(labels_union) < 2:
             return dbc.Alert("Not enough subtypes with samples for matrix.", color="info"), html.Div()
-        # Keep only rows where true_subtype is in top_subtypes
-        merged = merged[merged["true_subtype"].isin(top_subtypes)]
-        # Build crosstab (transition matrix, counts)
+        # Build crosstab (transition matrix, counts) and align to union of labels
         matrix_counts = pd.crosstab(
             merged[f"pred_{run1}"],
             merged[f"pred_{run2}"],
             rownames=[f"{run1} Prediction"],
             colnames=[f"{run2} Prediction"],
             dropna=False
-        ).reindex(index=top_subtypes, columns=top_subtypes, fill_value=0)
+        ).reindex(index=labels_union, columns=labels_union, fill_value=0)
 
         # Sort subtypes similar to confusion matrix (by F1 score, ascending) using run1 as reference
         texts_in_merged = set(merged["text"].unique())
-        df1_for_f1 = df1[df1["text"].isin(texts_in_merged) & df1["true_subtype"].isin(top_subtypes)]
+        df1_for_f1 = df1[df1["text"].isin(texts_in_merged)]
         f1_pairs = []
-        for subtype in top_subtypes:
+        for subtype in labels_union:
             sub_df = df1_for_f1[df1_for_f1["true_subtype"] == subtype]
             if not sub_df.empty:
                 f1_val = f1_score(
@@ -109,27 +107,11 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         sorted_subtypes = [s for s, _ in sorted(f1_pairs, key=lambda t: t[1])]
         matrix_counts = matrix_counts.reindex(index=sorted_subtypes, columns=sorted_subtypes, fill_value=0)
 
-        # Remove zero-only rows and columns (ensure rows with all zeros are dropped)
-        row_nonzero = (matrix_counts.sum(axis=1) > 0)
-        col_nonzero = (matrix_counts.sum(axis=0) > 0)
-        rows_to_keep = [s for s in matrix_counts.index if row_nonzero.get(s, False)]
-        cols_to_keep = [s for s in matrix_counts.columns if col_nonzero.get(s, False)]
-        if len(rows_to_keep) < 1 or len(cols_to_keep) < 1:
-            return dbc.Alert("No transitions to display after filtering zero-only rows/columns.", color="info"), html.Div()
-        # Preserve F1-sorted order while filtering
-        sorted_rows = [s for s in sorted_subtypes if s in rows_to_keep]
-        sorted_cols = [s for s in sorted_subtypes if s in cols_to_keep]
-        matrix_counts = matrix_counts.loc[sorted_rows, sorted_cols]
-
 
         # Prepare heatmap for Dash (show counts in cell, styled like confusion matrix)
         z = matrix_counts.values
         x_labels = matrix_counts.columns.tolist()
         y_labels = matrix_counts.index.tolist()
-        hovertext = [[
-            f"{run1}: {y}<br>{run2}: {x}<br>Count: {z[i][j]}"
-            for j, x in enumerate(x_labels)
-        ] for i, y in enumerate(y_labels)]
 
         # Color scale and font color logic (same as confusion matrix)
         z_min, z_max = z.min(), z.max()
