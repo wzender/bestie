@@ -87,25 +87,26 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             dropna=False
         ).reindex(index=labels_union, columns=labels_union, fill_value=0)
 
-        # Sort subtypes similar to confusion matrix (by F1 score, ascending) using run1 as reference
-        texts_in_merged = set(merged["text"].unique())
-        df1_for_f1 = df1[df1["text"].isin(texts_in_merged)]
-        f1_pairs = []
-        for subtype in labels_union:
-            sub_df = df1_for_f1[df1_for_f1["true_subtype"] == subtype]
-            if not sub_df.empty:
-                f1_val = f1_score(
-                    sub_df["true_subtype"],
-                    sub_df[f"pred_{run1}"],
-                    labels=[subtype],
-                    average="weighted",
-                    zero_division=0,
-                )
-            else:
-                f1_val = 0
-            f1_pairs.append((subtype, f1_val))
-        sorted_subtypes = [s for s, _ in sorted(f1_pairs, key=lambda t: t[1])]
-        matrix_counts = matrix_counts.reindex(index=sorted_subtypes, columns=sorted_subtypes, fill_value=0)
+        # Use slider to select top-N run1 subtypes by off-diagonal transit counts (ignore diagonal for ranking)
+        diag_labels = matrix_counts.index.intersection(matrix_counts.columns)
+        row_totals = matrix_counts.sum(axis=1).astype(int)
+        for s in diag_labels:
+            row_totals[s] = int(row_totals.get(s, 0)) - int(matrix_counts.loc[s, s])
+        # Rank rows by off-diagonal mass, descending
+        row_ranked = row_totals.sort_values(ascending=False)
+        top_n = n_subtypes if isinstance(n_subtypes, int) and n_subtypes > 0 else min(20, len(row_ranked))
+        top_rows = row_ranked.head(top_n)
+        # Keep only subtypes that actually transit (off-diagonal > 0)
+        rows_to_show = [r for r, v in top_rows.items() if v > 0]
+        if not rows_to_show:
+            return dbc.Alert("No subtypes with transitions to display for the selected runs.", color="info"), html.Div()
+        # Optionally drop columns with zero counts across selected rows to keep compact
+        cols_nonzero_mask = (matrix_counts.loc[rows_to_show, :].sum(axis=0) > 0)
+        cols_to_show = [c for c in matrix_counts.columns if cols_nonzero_mask.get(c, False)]
+        if not cols_to_show:
+            return dbc.Alert("No destination subtypes with transitions found.", color="info"), html.Div()
+        # Subset without changing existing styles
+        matrix_counts = matrix_counts.loc[rows_to_show, cols_to_show]
 
 
         # Prepare heatmap for Dash (show counts in cell, styled like confusion matrix)
@@ -169,8 +170,9 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
             )
         )
         cell_size = 40
-        num_subtypes = len(y_labels)
-        graph_width = cell_size * num_subtypes + 80
+        num_rows = len(y_labels)
+        num_cols = len(x_labels)
+        graph_width = cell_size * num_cols + 80
         fig.update_layout(
             xaxis=dict(
                 tickangle=45,
@@ -186,7 +188,7 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 title=dict(text=f"{run1} Prediction", font=dict(size=12, color="#1F2937", family="sans-serif")),
             ),
             width=graph_width,
-            height=40 * num_subtypes + 120,
+            height=cell_size * num_rows + 120,
             margin=dict(l=20, r=20, t=40, b=80),
             plot_bgcolor="#F8FAFC",
             paper_bgcolor="#F8FAFC",
@@ -226,12 +228,6 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         merged = pd.merge(df1, df2, on=["text", "true_subtype"], suffixes=(f"_{run1}", f"_{run2}"))
         if merged.empty:
             return dbc.Alert("No common datapoints between the selected runs.", color="info")
-        # Top N subtypes from merged
-        subtype_counts = merged["true_subtype"].value_counts()
-        if not isinstance(n_subtypes, int) or n_subtypes <= 0:
-            n_subtypes = min(20, len(subtype_counts))
-        top_subtypes = subtype_counts.head(n_subtypes).index.tolist()
-        merged = merged[merged["true_subtype"].isin(top_subtypes)]
         # Extract clicked cell
         point = matrix_click["points"][0]
         pred1 = point.get("y")
