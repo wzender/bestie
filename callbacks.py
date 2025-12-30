@@ -78,8 +78,8 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         ))
         if len(labels_union) < 2:
             return dbc.Alert("Not enough subtypes with samples for matrix.", color="info"), html.Div()
-        # Build crosstab (transition matrix, counts) and align to union of labels
-        matrix_counts = pd.crosstab(
+        # Build base crosstab (run1→run2) for ranking and align to union of labels
+        base_counts = pd.crosstab(
             merged[f"pred_{run1}"],
             merged[f"pred_{run2}"],
             rownames=[f"{run1} Prediction"],
@@ -88,26 +88,41 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         ).reindex(index=labels_union, columns=labels_union, fill_value=0)
 
         # Use slider to select top-N run1 subtypes by off-diagonal transit counts (ignore diagonal for ranking)
-        diag_labels = matrix_counts.index.intersection(matrix_counts.columns)
-        row_totals = matrix_counts.sum(axis=1).astype(int)
+        diag_labels = base_counts.index.intersection(base_counts.columns)
+        row_totals = base_counts.sum(axis=1).astype(int)
         for s in diag_labels:
-            row_totals[s] = int(row_totals.get(s, 0)) - int(matrix_counts.loc[s, s])
-        # Rank rows by off-diagonal mass, descending
+            row_totals[s] = int(row_totals.get(s, 0)) - int(base_counts.loc[s, s])
+        # Rank rows (run1 labels) by off-diagonal mass, descending
         row_ranked = row_totals.sort_values(ascending=False)
         top_n = n_subtypes if isinstance(n_subtypes, int) and n_subtypes > 0 else min(20, len(row_ranked))
         top_rows = row_ranked.head(top_n)
         # Keep only subtypes that actually transit (off-diagonal > 0)
-        rows_to_show = [r for r, v in top_rows.items() if v > 0]
-        if not rows_to_show:
-            return dbc.Alert("No subtypes with transitions to display for the selected runs.", color="info"), html.Div()
-        # Optionally drop columns with zero counts across selected rows to keep compact
-        cols_nonzero_mask = (matrix_counts.loc[rows_to_show, :].sum(axis=0) > 0)
-        cols_to_show = [c for c in matrix_counts.columns if cols_nonzero_mask.get(c, False)]
+        cols_to_show = [r for r, v in top_rows.items() if v > 0]
         if not cols_to_show:
+            return dbc.Alert("No subtypes with transitions to display for the selected runs.", color="info"), html.Div()
+
+        # Build transposed crosstab (run2→run1) so Top-N defines x-axis labels
+        matrix_counts = pd.crosstab(
+            merged[f"pred_{run2}"],
+            merged[f"pred_{run1}"],
+            rownames=[f"{run2} Prediction"],
+            colnames=[f"{run1} Prediction"],
+            dropna=False
+        ).reindex(index=labels_union, columns=labels_union, fill_value=0)
+
+        # Compact rows: keep only run2 labels with non-zero counts across selected run1 columns
+        rows_nonzero_mask = (matrix_counts.loc[:, cols_to_show].sum(axis=1) > 0)
+        rows_to_show = [r for r in matrix_counts.index if rows_nonzero_mask.get(r, False)]
+        if not rows_to_show:
             return dbc.Alert("No destination subtypes with transitions found.", color="info"), html.Div()
-        # Subset without changing existing styles
+
+        # Subset without changing existing styles (rows: run2, cols: selected Top-N run1)
         matrix_counts = matrix_counts.loc[rows_to_show, cols_to_show]
 
+        # Zero diagonal (self-transitions) for display-only, keep current styling
+        diag_labels = matrix_counts.index.intersection(matrix_counts.columns)
+        for s in diag_labels:
+            matrix_counts.loc[s, s] = 0
 
         # Prepare heatmap for Dash (show counts in cell, styled like confusion matrix)
         z = matrix_counts.values
@@ -179,13 +194,13 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
                 tickfont=dict(size=12, color="#1F2937"),
                 categoryorder="array",
                 categoryarray=x_labels,
-                title=dict(text=f"{run2} Prediction", font=dict(size=12, color="#1F2937", family="sans-serif")),
+                title=dict(text=f"{run1} Prediction", font=dict(size=12, color="#1F2937", family="sans-serif")),
             ),
             yaxis=dict(
                 tickfont=dict(size=12, color="#1F2937"),
                 categoryorder="array",
                 categoryarray=y_labels,
-                title=dict(text=f"{run1} Prediction", font=dict(size=12, color="#1F2937", family="sans-serif")),
+                title=dict(text=f"{run2} Prediction", font=dict(size=12, color="#1F2937", family="sans-serif")),
             ),
             width=graph_width,
             height=cell_size * num_rows + 120,
