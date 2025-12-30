@@ -109,15 +109,17 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         sorted_subtypes = [s for s, _ in sorted(f1_pairs, key=lambda t: t[1])]
         matrix_counts = matrix_counts.reindex(index=sorted_subtypes, columns=sorted_subtypes, fill_value=0)
 
-        # Remove zero-only rows and columns
+        # Remove zero-only rows and columns (ensure rows with all zeros are dropped)
         row_nonzero = (matrix_counts.sum(axis=1) > 0)
         col_nonzero = (matrix_counts.sum(axis=0) > 0)
-        subtypes_to_keep = [s for s in matrix_counts.index if row_nonzero.get(s, False) or col_nonzero.get(s, False)]
-        if len(subtypes_to_keep) < 2:
-            return dbc.Alert("No transitions to display after filtering zero-only subtypes.", color="info"), html.Div()
+        rows_to_keep = [s for s in matrix_counts.index if row_nonzero.get(s, False)]
+        cols_to_keep = [s for s in matrix_counts.columns if col_nonzero.get(s, False)]
+        if len(rows_to_keep) < 1 or len(cols_to_keep) < 1:
+            return dbc.Alert("No transitions to display after filtering zero-only rows/columns.", color="info"), html.Div()
         # Preserve F1-sorted order while filtering
-        sorted_filtered = [s for s in sorted_subtypes if s in subtypes_to_keep]
-        matrix_counts = matrix_counts.loc[sorted_filtered, sorted_filtered]
+        sorted_rows = [s for s in sorted_subtypes if s in rows_to_keep]
+        sorted_cols = [s for s in sorted_subtypes if s in cols_to_keep]
+        matrix_counts = matrix_counts.loc[sorted_rows, sorted_cols]
 
 
         # Prepare heatmap for Dash (show counts in cell, styled like confusion matrix)
@@ -1360,4 +1362,4 @@ def register_callbacks(app, run_data, detailed_data, test_run_id):
         # Store the rows data for export
         return card, rows
 
-    
+
